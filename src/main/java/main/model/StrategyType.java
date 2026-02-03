@@ -1,0 +1,14 @@
+package main.model;
+
+public enum StrategyType {
+    BOLLINGER_BANDS_SCALPING,
+    DONCHIAN_BREAKOUT,
+    DOWNTREND_RSI,
+    EMA_STOCHASTIC_SCALPING,
+    TRIPLE_EMA,
+    ELLIOTT_WAVE,
+    ORDER_BLOCK,
+    MACD_ATR_TREND,
+    HEIKIN_ASHI_ICHIMOKU,
+    SUPER_TREND // SuperTrend 전략 추가
+}

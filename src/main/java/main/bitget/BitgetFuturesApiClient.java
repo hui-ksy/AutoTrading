@@ -114,12 +114,9 @@ public class BitgetFuturesApiClient implements MarketDataClient, TradeClient {
             String sizeStr = BigDecimal.valueOf(quantity).setScale(4, RoundingMode.DOWN).toPlainString();
             data.put("size", sizeStr);
             
-            // log.info("[TP/SL 요청] {} - 파라미터: {}", planType, gson.toJson(data));
-
             JsonObject response = post("/api/v2/mix/order/place-tpsl-order", data);
             
             if (response != null && "00000".equals(response.get("code").getAsString())) {
-                // log.info("[TP/SL 응답] {} - 성공: {}", planType, response);
                 return true;
             } else {
                 String errorCode = (response != null && response.has("code")) ? response.get("code").getAsString() : "N/A";
@@ -133,7 +130,6 @@ public class BitgetFuturesApiClient implements MarketDataClient, TradeClient {
         }
     }
     
-    // [추가] 모든 Plan Order 취소 (조회 후 개별 취소)
     public boolean cancelAllPlanOrders(String symbol) {
         try {
             List<PlanOrder> orders = getPlanOrders(symbol);
@@ -141,7 +137,6 @@ public class BitgetFuturesApiClient implements MarketDataClient, TradeClient {
                 return true;
             }
             
-            // log.info("[Plan Order 전체 취소] 총 {}개의 주문을 취소합니다.", orders.size());
             boolean allSuccess = true;
             
             for (PlanOrder order : orders) {
@@ -158,7 +153,6 @@ public class BitgetFuturesApiClient implements MarketDataClient, TradeClient {
         }
     }
     
-    // [수정] 단건 Plan Order 취소
     private boolean cancelPlanOrder(String symbol, String orderId, String planType) {
         try {
             Map<String, Object> data = new HashMap<>();
@@ -167,12 +161,9 @@ public class BitgetFuturesApiClient implements MarketDataClient, TradeClient {
             data.put("orderId", orderId);
             data.put("planType", planType);
             
-            // log.info("[Plan Order 취소 요청] ID: {}, Type: {}", orderId, planType);
-            
             JsonObject response = post("/api/v2/mix/order/cancel-plan-order", data);
             
             if (response != null && "00000".equals(response.get("code").getAsString())) {
-                // log.info("[Plan Order 취소] ID: {} - 성공", orderId);
                 return true;
             } else {
                 String errorCode = (response != null && response.has("code")) ? response.get("code").getAsString() : "N/A";
@@ -212,11 +203,6 @@ public class BitgetFuturesApiClient implements MarketDataClient, TradeClient {
                     planOrder.setPlanType(order.get("planType").getAsString());
                     planOrder.setTriggerPrice(order.get("triggerPrice").getAsDouble());
                     planOrders.add(planOrder);
-                }
-            } else {
-                String errorCode = (response != null && response.has("code")) ? response.get("code").getAsString() : "N/A";
-                if (!"00000".equals(errorCode)) {
-                     // log.error("[Plan Order 조회 실패] {} - 코드: {}", planType, errorCode);
                 }
             }
         } catch (Exception e) {
@@ -421,23 +407,42 @@ public class BitgetFuturesApiClient implements MarketDataClient, TradeClient {
         return 2;
     }
 
-    public Trade getLatestTrade(String symbol) {
+    public Trade getLatestClosedPosition(String symbol) {
         try {
-            String endpoint = "/api/v2/mix/order/history-trade";
+            String endpoint = "/api/v2/mix/position/history-position";
             String queryString = "?symbol=" + symbol + "&productType=" + productType + "&limit=1";
+            
             JsonObject response = get(endpoint, queryString);
+            
             if (response != null && "00000".equals(response.get("code").getAsString())) {
-                JsonArray data = response.getAsJsonArray("data");
-                if (data.size() > 0) {
-                    JsonObject tradeData = data.get(0).getAsJsonObject();
-                    Trade trade = new Trade();
-                    trade.setExitPrice(tradeData.get("fillPrice").getAsDouble());
-                    trade.setFee(tradeData.get("fee").getAsDouble());
-                    return trade;
+                JsonObject data = response.getAsJsonObject("data");
+                if (data != null && data.has("list")) {
+                    JsonArray list = data.getAsJsonArray("list");
+                    if (list.size() > 0) {
+                        JsonObject posData = list.get(0).getAsJsonObject();
+                        Trade trade = new Trade();
+                        
+                        // [수정] 필드명 변경 및 파싱
+                        if (posData.has("openPriceAvg") && !posData.get("openPriceAvg").isJsonNull()) {
+                            trade.setEntryPrice(posData.get("openPriceAvg").getAsDouble());
+                        }
+                        if (posData.has("closePriceAvg") && !posData.get("closePriceAvg").isJsonNull()) {
+                            trade.setExitPrice(posData.get("closePriceAvg").getAsDouble());
+                        }
+                        if (posData.has("netProfit") && !posData.get("netProfit").isJsonNull()) {
+                            trade.setProfit(posData.get("netProfit").getAsDouble());
+                        }
+                        
+                        double openFee = posData.has("openFee") ? Math.abs(posData.get("openFee").getAsDouble()) : 0.0;
+                        double closeFee = posData.has("closeFee") ? Math.abs(posData.get("closeFee").getAsDouble()) : 0.0;
+                        trade.setFee(openFee + closeFee);
+                        
+                        return trade;
+                    }
                 }
             }
         } catch (Exception e) {
-            log.error("{} 최근 거래 내역 조회 실패", symbol, e);
+            log.error("{} 최근 포지션 종료 내역 조회 실패", symbol, e);
         }
         return null;
     }
@@ -512,13 +517,11 @@ public class BitgetFuturesApiClient implements MarketDataClient, TradeClient {
                 orderData.put("price", String.valueOf(price));
             }
             
-            // [수정] 주문 요청 로그 삭제
             // log.info("[주문 요청] {}", gson.toJson(orderData));
 
             JsonObject response = post("/api/v2/mix/order/place-order", orderData);
             
             if (response != null && "00000".equals(response.get("code").getAsString())) {
-                // [수정] 주문 성공 로그 삭제
                 // log.info("[주문 성공] {}", response);
                 return parseOrderResult(response, quantity, price);
             } else {

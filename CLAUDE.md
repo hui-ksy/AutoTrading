@@ -27,10 +27,11 @@ src/
 │   ├── BitgetTradingBot.java
 │   ├── backtest/
 │   │   ├── BacktestRunner.java      # 백테스트 진입점
-│   │   │     main() → runBBLeverageComparison()  ← 현재 실행 함수
-│   │   │     runBBSweep()           # 15m 파라미터 스윕
-│   │   │     runBB5mSweep()         # 5m 파라미터 스윕
-│   │   │     runBBLeverageComparison()  # 레버리지별 수익 비교 ★
+│   │   │     main() → runMultiCoinComparison()  ← 현재 실행 함수
+│   │   │     runBBSweep()              # 15m 파라미터 스윕
+│   │   │     runBB5mSweep()            # 5m 파라미터 스윕
+│   │   │     runBBLeverageComparison() # 레버리지별 수익 비교
+│   │   │     runMultiCoinComparison()  # 멀티코인 비교 ★ (BTC만 유효)
 │   │   ├── Backtester.java          # 백테스트 엔진 (레버리지 지원)
 │   │   └── BacktestResult.java      # 결과 + TradeRecord
 │   ├── bitget/
@@ -91,9 +92,11 @@ SMA200 추세 필터 없이 볼린저 밴드 2σ 이탈 + RSI 극단 → 평균 
 
 ```hocon
 trading {
+  mode = "PAPER"          # 페이퍼 트레이딩 중
   strategy = "BOLLINGER_BAND_REVERSION"
   timeframe = "5m"
-  futures.leverage = 5
+  pairs = ["BTCUSDT"]    # BTC 단독 (ETH/SOL/XRP 멀티코인 실패 확인됨)
+  futures.leverage = 10
 }
 bollingerBands { period = 10, stdDev = 2.0, rsiPeriod = 14, rsiOversold = 20, rsiOverbought = 80 }
 risk {
@@ -144,11 +147,39 @@ new Backtester(strategy, candles, INIT_BAL, FEE_PCT, warmup, SYMBOL, leverage)
 
 - 수익 극대화 (레버리지 활용), 하루 1건 내외 고품질 신호
 
+## 멀티코인 백테스트 결과 (BTC 튜닝 파라미터 기준, 30일)
+
+| 심볼 | 승률 | 수익률 | MDD | 결론 |
+|------|------|--------|-----|------|
+| BTCUSDT | 60.0% | +5.35% (1x) | 0.77% | ✅ 채택 |
+| ETHUSDT | 38.5% | 실패 | 21%+ | ❌ 기각 |
+| SOLUSDT | 32.x% | 실패 | 30%+ | ❌ 기각 |
+| XRPUSDT | 36.x% | 실패 | 39%+ | ❌ 기각 |
+
+> BTC 파라미터는 다른 코인에 과적합. BTC 단독 운용 결정.
+
+## AutoTrader SL/TP 수정 이력
+
+- **기존**: `setFixedTpSl()` — 고정 0.15% SL / 0.30% TP (백테스트와 불일치)
+- **수정**: signal의 `stopLoss`/`takeProfit` 값이 있으면 ATR 기반 사용, 없으면 폴백
+- **위치**: `AutoTrader.executeEnterPosition()` L247
+
+## 실행 방법
+
+```bash
+# 페이퍼 트레이딩 (자동 재시작 + 로그 저장)
+run_bot.bat   # Windows 더블클릭 또는 Task Scheduler 등록
+
+# 또는
+./gradlew run
+```
+
 ## 다음 작업 (TODO)
 
-- [ ] `./gradlew run` 으로 페이퍼 트레이딩 검증 (새 파라미터)
-- [ ] 레버리지 결정: 5x(MDD ~3.9%) vs 10x(MDD ~7.7%) 선택
-- [ ] 1-2주 페이퍼 트레이딩 후 실거래 전환 여부 판단
+- [x] 레버리지 결정: 10x 선택 (MDD ~7.7%)
+- [x] SL/TP 백테스트 일치 수정
+- [ ] 1-2주 페이퍼 트레이딩 모니터링 (텔레그램 알림 확인)
+- [ ] 실거래 전환 전 `mode = "LIVE"`, `leverage = 10` 재확인
 
 <!-- AUTOPUS:BEGIN -->
 # Autopus-ADK Harness

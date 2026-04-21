@@ -30,6 +30,10 @@ public class StrategyFactory {
                 return new HeikinAshiIchimokuStrategy(config);
             case SUPER_TREND:
                 return new SuperTrendStrategy(config);
+            case DYNAMIC_EXIT_SCALPING:
+                return new DynamicExitScalpingStrategy(config);
+            case BOLLINGER_BAND_REVERSION:
+                return new BollingerBandReversionStrategy(config);
             default:
                 throw new IllegalArgumentException("Unknown strategy type: " + type);
         }

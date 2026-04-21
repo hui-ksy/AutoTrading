@@ -38,6 +38,7 @@ public class TradingConfig {
     private double takeProfitPercent;
     private int atrPeriod;
     private double atrSlMultiplier;
+    private double atrTpMultiplier;
     private double maxPositionSize;
     private double dailyMaxLossPercent;
     private int maxOpenPositions;
@@ -138,6 +139,7 @@ public class TradingConfig {
         tc.setTakeProfitPercent(config.getDouble("risk.takeProfitPercent"));
         tc.setAtrPeriod(config.getInt("risk.atrPeriod"));
         tc.setAtrSlMultiplier(config.getDouble("risk.atrSlMultiplier"));
+        tc.setAtrTpMultiplier(config.hasPath("risk.atrTpMultiplier") ? config.getDouble("risk.atrTpMultiplier") : tc.getAtrSlMultiplier() * 1.5);
         tc.setMaxPositionSize(config.getDouble("risk.maxPositionSize"));
         tc.setDailyMaxLossPercent(config.getDouble("risk.dailyMaxLossPercent"));
         tc.setMaxOpenPositions(config.getInt("risk.maxOpenPositions"));

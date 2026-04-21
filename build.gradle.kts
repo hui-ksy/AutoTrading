@@ -61,6 +61,24 @@ tasks.test {
     useJUnitPlatform()
 }
 
+application {
+    mainClass.set("main.AutoTrader")
+}
+
+tasks.register<JavaExec>("backtest") {
+    group = "trading"
+    description = "Run backtester with DynamicExitScalpingStrategy"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("main.backtest.BacktestRunner")
+}
+
+tasks.register<JavaExec>("candleTest") {
+    group = "trading"
+    description = "Debug Bitget candle API pagination"
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("main.backtest.CandleDebugTest")
+}
+
 tasks.jar {
     manifest {
         attributes["Main-Class"] = "com.trading.bitget.BitgetTradingBot"

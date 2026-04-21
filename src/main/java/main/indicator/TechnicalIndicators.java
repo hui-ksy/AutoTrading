@@ -183,15 +183,26 @@ public class TechnicalIndicators {
     public static StochasticResult calculateStochastic(List<Candle> candles, int kPeriod, int dPeriod, int slowing) {
         List<Double> kValues = new ArrayList<>();
         List<Double> dValues = new ArrayList<>();
-        if (candles.size() < kPeriod) return StochasticResult.builder().k(kValues).d(dValues).build();
+        
+        // [수정] 데이터 부족 시 빈 결과 반환
+        if (candles == null || candles.size() < kPeriod) {
+            return StochasticResult.builder().k(kValues).d(dValues).build();
+        }
 
         for (int i = kPeriod - 1; i < candles.size(); i++) {
-            List<Candle> sublist = candles.subList(i - kPeriod + 1, i + 1);
+            // [수정] subList 범위 체크 강화
+            int startIdx = i - kPeriod + 1;
+            int endIdx = i + 1;
+            if (startIdx < 0 || endIdx > candles.size()) continue;
+            
+            List<Candle> sublist = candles.subList(startIdx, endIdx);
+            if (sublist.isEmpty()) continue;
+            
             double highestHigh = sublist.stream().mapToDouble(Candle::getHigh).max().orElse(0);
             double lowestLow = sublist.stream().mapToDouble(Candle::getLow).min().orElse(0);
             double currentClose = sublist.get(sublist.size() - 1).getClose();
             
-            double percentK = 100 * ((currentClose - lowestLow) / (highestHigh - lowestLow));
+            double percentK = (highestHigh == lowestLow) ? 50.0 : 100 * ((currentClose - lowestLow) / (highestHigh - lowestLow));
             kValues.add(percentK);
         }
 
@@ -205,7 +216,7 @@ public class TechnicalIndicators {
                 slowedK.add(sum / slowing);
             }
         } else {
-            slowedK = kValues;
+            slowedK.addAll(kValues);
         }
 
         if (slowedK.size() >= dPeriod) {
@@ -249,7 +260,6 @@ public class TechnicalIndicators {
         return atr;
     }
     
-    // [추가] ATR 리스트 반환 (SuperTrend 계산용)
     public static List<Double> calculateATRList(List<Candle> candles, int period) {
         List<Double> atrList = new ArrayList<>();
         if (candles.size() < period + 1) return atrList;
@@ -425,17 +435,14 @@ public class TechnicalIndicators {
         return smoothed;
     }
     
-    // [추가] SuperTrend 계산
     public static SuperTrendResult calculateSuperTrend(List<Candle> candles, int period, double multiplier) {
         List<Double> superTrend = new ArrayList<>();
-        List<Boolean> trend = new ArrayList<>(); // true: Long, false: Short
+        List<Boolean> trend = new ArrayList<>(); 
         
         List<Double> atr = calculateATRList(candles, period);
         
-        // ATR 계산에 필요한 데이터만큼 앞부분은 스킵
         int offset = candles.size() - atr.size();
         
-        // 초기값 설정
         superTrend.add(0.0);
         trend.add(true);
         

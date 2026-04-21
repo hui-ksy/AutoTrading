@@ -561,7 +561,7 @@ public class BitgetFuturesApiClient implements MarketDataClient, TradeClient {
                 candles.add(candle);
             }
         } catch (Exception e) { log.error("캔들 데이터 파싱 실패", e); }
-        Collections.reverse(candles);
+        // Bitget API는 ascending(오래된 순) 반환 → 그대로 oldest-first 유지
         return candles;
     }
 

@@ -240,11 +240,19 @@ public class AutoTrader {
                 currentPosition.setEntryPrice(result.getAveragePrice());
                 currentPosition.setQuantity(result.getFilledQuantity());
                 currentPosition.setEntryTimestamp(lastCandle.getTimestamp());
-                
+
                 double marginUsed = (currentPosition.getEntryPrice() * currentPosition.getQuantity()) / config.getLeverage();
                 log.info("[{}] 진입 증거금: ${}", pair, String.format("%.2f", marginUsed));
-                
-                setFixedTpSl(currentPosition);
+
+                if (signal.getStopLoss() > 0 && signal.getTakeProfit() > 0) {
+                    currentPosition.setStopLoss(signal.getStopLoss());
+                    currentPosition.setTakeProfit(signal.getTakeProfit());
+                    log.info("[{}] ATR 기반 손익절 설정 - SL: {}, TP: {}", pair,
+                            String.format("%.4f", signal.getStopLoss()),
+                            String.format("%.4f", signal.getTakeProfit()));
+                } else {
+                    setFixedTpSl(currentPosition);
+                }
                 
                 telegram.notifyEnterPosition(currentPosition, signal, config);
                 this.entrySignal = null;

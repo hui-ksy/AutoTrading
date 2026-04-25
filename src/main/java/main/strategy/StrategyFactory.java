@@ -34,6 +34,8 @@ public class StrategyFactory {
                 return new DynamicExitScalpingStrategy(config);
             case BOLLINGER_BAND_REVERSION:
                 return new BollingerBandReversionStrategy(config);
+            case ALTCOIN_EMA_SCALPING:
+                return new AltcoinEmaScalpingStrategy(config);
             default:
                 throw new IllegalArgumentException("Unknown strategy type: " + type);
         }

@@ -37,8 +37,52 @@ public class BacktestRunner {
     private static final double FEE_PCT  = 0.06;     // 편도 수수료 %
 
     public static void main(String[] args) {
-        // 멀티코인 BB 전략 검증 — BTC 최적 파라미터가 ETH/SOL/XRP에도 통하는지 확인
-        runMultiCoinComparison();
+        runAltcoinEmaSweep();
+    }
+
+    // ── 최근 1일 체크 (오늘 거래가 없었던 게 맞는지 검증) ─────────────────
+    public static void runRecentDayCheck() {
+        final String timeframe = "5m";
+        final int candleCnt = 500;   // 5m × 500 ≈ 41시간 (웜업 포함)
+        final int warmup = 40;
+
+        final int    bbPeriod      = 10;
+        final double bbStdDev      = 2.0;
+        final double rsiOversold   = 20.0;
+        final double rsiOverbought = 80.0;
+        final double slMult        = 1.0;
+        final double tpMult        = 2.5;
+
+        log.info("===== 최근 1일 BB 백테스트 시작 =====");
+
+        TradingConfig config = TradingConfig.getInstance();
+        List<Candle> candles = fetchCandles(config, SYMBOL, timeframe, candleCnt);
+        if (candles.isEmpty()) return;
+
+        double totalDays = (candles.get(candles.size() - 1).getTimestamp()
+            - candles.get(warmup).getTimestamp()) / (1000.0 * 60 * 60 * 24);
+
+        System.out.printf("%n[최근 1일 체크] BB(%d,%.1f) rsiOS=%.0f rsiOB=%.0f SL=%.1f× TP=%.1f×  기간: %.1f일%n",
+            bbPeriod, bbStdDev, rsiOversold, rsiOverbought, slMult, tpMult, totalDays);
+        System.out.printf("기간: %s ~ %s%n%n",
+            formatTs(candles.get(warmup).getTimestamp()),
+            formatTs(candles.get(candles.size() - 1).getTimestamp()));
+
+        TradingStrategy strategy = new BollingerBandReversionStrategy(
+            bbPeriod, bbStdDev, rsiOversold, rsiOverbought, slMult, tpMult);
+        Backtester bt = new Backtester(strategy, candles, INIT_BAL, FEE_PCT, warmup, SYMBOL);
+        BacktestResult r = bt.run();
+
+        System.out.printf("총 거래수: %d건 | 승률: %.1f%% | 수익률: %+.2f%%%n",
+            r.getTotalTrades(), r.getWinRate(), r.getTotalReturnPct());
+
+        if (r.getTotalTrades() == 0) {
+            System.out.println("\n→ 해당 기간 동안 조건(RSI<20 or RSI>80)을 충족한 신호 없음 — 무거래 정상 확인됨.");
+        } else {
+            printResult(r);
+        }
+
+        log.info("===== 최근 1일 BB 백테스트 종료 =====");
     }
 
     // ── 단일 백테스트 (application.conf 설정 기반) ───────────────────
@@ -1163,6 +1207,129 @@ public class BacktestRunner {
             profitable, results.size(), 100.0 * profitable / results.size());
         System.out.printf("목표(일 2건+ AND 플러스 수익 AND 승률50%%+) 달성: %d개%n", hitTarget);
         System.out.printf("전체 기간: %.1f일%n", totalDays);
+    }
+
+    // ── 알트코인 EMA 스캘핑 멀티심볼 파라미터 스윕 (1m, 7일) ───────────────
+    public static void runAltcoinEmaSweep() {
+        final String   timeframe  = "1m";
+        final int      candleCnt  = 10_080;  // 1m × 10080 = 7일
+        final int      warmup     = 35;
+        final int      leverage   = 25;
+        final String[] symbols    = {"XRPUSDT", "DOGEUSDT", "PEPEUSDT"};
+
+        int[]    fastEmas = {3, 5, 7};
+        double[] slMults  = {0.5, 0.8, 1.0, 1.2};
+        double[] tpMults  = {1.5, 2.0, 2.5, 3.0};
+        int[]    slowEmas = {10, 15, 20};
+
+        log.info("===== 알트코인 EMA 스캘핑 멀티심볼 스윕 시작 =====");
+
+        TradingConfig config = TradingConfig.getInstance();
+
+        for (String symbol : symbols) {
+            List<Candle> candles = fetchCandles(config, symbol, timeframe, candleCnt);
+            if (candles.isEmpty()) {
+                log.warn("캔들 수집 실패: {}", symbol);
+                continue;
+            }
+
+            double totalDays  = (candles.get(candles.size() - 1).getTimestamp()
+                - candles.get(warmup).getTimestamp()) / (1000.0 * 60 * 60 * 24);
+            double totalHours = totalDays * 24;
+
+            log.info("[{}] 캔들 {}개, {}일 ({}시간)", symbol, candles.size(),
+                String.format("%.1f", totalDays), String.format("%.0f", totalHours));
+
+            List<AltcoinEmaSweepResult> results = new ArrayList<>();
+            int total = fastEmas.length * slowEmas.length * slMults.length * tpMults.length;
+            int count = 0;
+
+            for (int fast : fastEmas) {
+                for (int slow : slowEmas) {
+                    if (fast >= slow) continue;
+                    for (double sl : slMults) {
+                        for (double tp : tpMults) {
+                            if (tp <= sl) continue;
+
+                            TradingStrategy strategy =
+                                new main.strategy.AltcoinEmaScalpingStrategy(fast, slow, sl, tp);
+                            Backtester bt = new Backtester(
+                                strategy, candles, INIT_BAL, FEE_PCT, warmup, symbol, leverage);
+                            BacktestResult r = bt.run();
+
+                            double tradesPerDay  = totalDays  > 0 ? r.getTotalTrades() / totalDays  : 0;
+                            double tradesPerHour = totalHours > 0 ? r.getTotalTrades() / totalHours : 0;
+                            results.add(new AltcoinEmaSweepResult(
+                                fast, slow, sl, tp, r, tradesPerDay, tradesPerHour));
+
+                            count++;
+                            if (count % 20 == 0) log.info("[{}] 스윕 진행: {}/{}", symbol, count, total);
+                        }
+                    }
+                }
+            }
+
+            printAltcoinEmaSweepResults(symbol, results, totalDays, totalHours);
+        }
+
+        log.info("===== 알트코인 EMA 스캘핑 스윕 종료 =====");
+    }
+
+    private static void printAltcoinEmaSweepResults(String symbol,
+                                                     List<AltcoinEmaSweepResult> results,
+                                                     double totalDays, double totalHours) {
+        System.out.printf("%n══════════════════════════════════════════════════════════════════%n");
+        System.out.printf("  [%s] EMA 스캘핑 스윕 결과 (Top 20 — 수익률 기준, 레버리지 25x)%n", symbol);
+        System.out.printf("══════════════════════════════════════════════════════════════════%n");
+        System.out.printf("%-6s %-6s %-5s %-5s │ %5s %6s %7s %7s %7s %6s %6s%n",
+            "fast", "slow", "SL×", "TP×",
+            "거래수", "승률%", "건/시간", "건/일", "수익률%", "MDD%", "Sharpe");
+        System.out.println("──────────────────────────────────────────────────────────────────");
+
+        results.stream()
+            .filter(r -> r.result.getTotalTrades() >= 5)
+            .sorted(Comparator.comparingDouble((AltcoinEmaSweepResult r) ->
+                r.result.getTotalReturnPct()).reversed())
+            .limit(20)
+            .forEach(r -> {
+                BacktestResult br = r.result;
+                String flag = r.tradesPerHour >= 1.0 && br.getTotalReturnPct() > 0 ? " ★" : "";
+                System.out.printf("%-6d %-6d %-5.1f %-5.1f │ %5d %6.1f %7.2f %7.2f %7.2f %6.2f %6.2f%s%n",
+                    r.fastEma, r.slowEma, r.sl, r.tp,
+                    br.getTotalTrades(), br.getWinRate(),
+                    r.tradesPerHour, r.tradesPerDay,
+                    br.getTotalReturnPct(), br.getMaxDrawdownPct(), br.getSharpeRatio(),
+                    flag);
+            });
+
+        System.out.println("──────────────────────────────────────────────────────────────────");
+        System.out.println("★ = 시간당 1건 이상 AND 플러스 수익");
+
+        long hitTarget = results.stream()
+            .filter(r -> r.tradesPerHour >= 1.0 && r.result.getTotalReturnPct() > 0)
+            .count();
+        System.out.printf("목표(시간당 1건+ AND 플러스 수익) 달성 조합: %d개 / 전체 %d개%n",
+            hitTarget, results.size());
+        System.out.printf("기간: %.1f일 (%.0f시간)  초기잔고: $%.0f  레버리지: 25x%n%n",
+            totalDays, totalHours, INIT_BAL);
+    }
+
+    private static class AltcoinEmaSweepResult {
+        final int fastEma, slowEma;
+        final double sl, tp;
+        final BacktestResult result;
+        final double tradesPerDay, tradesPerHour;
+
+        AltcoinEmaSweepResult(int fastEma, int slowEma, double sl, double tp,
+                              BacktestResult result, double tradesPerDay, double tradesPerHour) {
+            this.fastEma = fastEma;
+            this.slowEma = slowEma;
+            this.sl = sl;
+            this.tp = tp;
+            this.result = result;
+            this.tradesPerDay = tradesPerDay;
+            this.tradesPerHour = tradesPerHour;
+        }
     }
 
     private static String formatTs(long ts) {

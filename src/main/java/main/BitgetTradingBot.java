@@ -4,11 +4,17 @@ import lombok.extern.slf4j.Slf4j;
 import main.bitget.BitgetFuturesApiClient;
 import main.bitget.PaperTradingClient;
 import main.bitget.TradeClient;
+import main.job.DailyOptimizer;
 import main.job.TelegramNotifier;
+import main.job.WindowsPowerManager;
 import main.model.*;
 import main.strategy.StrategyFactory;
 import main.strategy.TradingStrategy;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -29,10 +35,12 @@ public class BitgetTradingBot {
     public static volatile double sharedTotalEquity = 0.0;
     public static volatile double sharedAvailableBalance = 0.0;
 
-    private static List<AutoTrader> autoTraders;
+    private static List<AutoTrader> autoTraders = new ArrayList<>();
     private static volatile boolean botRunning = true;
+    private static volatile boolean gracefulShutdown = false;
 
     private static PaperTradingClient globalPaperClient;
+    private static DailyOptimizer dailyOptimizer;
 
     public static void main(String[] args) {
         log.info("===========================================");
@@ -56,6 +64,7 @@ public class BitgetTradingBot {
                 if (command.equals("/status")) return getStatusSummary();
                 if (command.equals("/balance")) return getBalanceSummary();
                 if (command.equals("/stop")) {
+                    gracefulShutdown = true;
                     stopAllTraders();
                     return "🚨 모든 봇이 정지되었습니다. /start 로 재시작하세요.";
                 }
@@ -125,9 +134,18 @@ public class BitgetTradingBot {
                     return addTrader(symbol);
                 }
 
+                if (command.equals("/optimize")) {
+                    if (dailyOptimizer != null) dailyOptimizer.triggerNow();
+                    return "⏳ 파라미터 최적화를 시작합니다. 잠시 후 결과가 전송됩니다.";
+                }
+
+                String optimizerReply = dailyOptimizer != null ? dailyOptimizer.handleReply(command) : null;
+                if (optimizerReply != null) return optimizerReply;
+
                 return "알 수 없는 명령어입니다. /help 를 입력하세요.";
             });
             telegram.sendStartupMessage();
+            dailyOptimizer = new DailyOptimizer(config, telegram);
 
             if (config.getMode() == TradingMode.PAPER) {
                 BitgetFuturesApiClient futuresApiClientForMarketData = new BitgetFuturesApiClient(
@@ -161,6 +179,10 @@ public class BitgetTradingBot {
             }
 
             startSummaryLoggingThread(autoTraders, globalPaperClient);
+            dailyOptimizer.start();
+            startHeartbeatThread(config.getHealthcheckPingUrl());
+
+            WindowsPowerManager.preventSleep();
 
             log.info("===========================================");
             log.info("현재 잔액: ${}", String.format("%.2f", initialBalance));
@@ -169,9 +191,12 @@ public class BitgetTradingBot {
 
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 log.info("트레이딩봇 종료 신호 수신...");
-                if (autoTraders != null) {
-                    autoTraders.forEach(trader -> trader.stop());
+                if (telegram != null && !gracefulShutdown) {
+                    telegram.notifyCrash("예기치 않은 종료 (재시작 대기 중)");
                 }
+                autoTraders.forEach(AutoTrader::stop);
+                if (dailyOptimizer != null) dailyOptimizer.shutdown();
+                WindowsPowerManager.allowSleep();
                 if (telegram != null) {
                     telegram.shutdown();
                 }
@@ -179,6 +204,9 @@ public class BitgetTradingBot {
 
         } catch (Exception e) {
             log.error("트레이딩봇 실행 중 심각한 오류 발생", e);
+            if (telegram != null) {
+                telegram.notifyCrash("심각한 오류: " + e.getMessage());
+            }
             System.exit(1);
         }
     }
@@ -559,6 +587,24 @@ public class BitgetTradingBot {
         }
     }
 
+    private static void startHeartbeatThread(String pingUrl) {
+        if (pingUrl == null || pingUrl.isBlank()) return;
+
+        HttpClient httpClient = HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder().uri(URI.create(pingUrl)).GET().build();
+
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+        scheduler.scheduleAtFixedRate(() -> {
+            try {
+                httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+            } catch (Exception e) {
+                log.warn("Healthcheck ping 실패: {}", e.getMessage());
+            }
+        }, 0, 5, TimeUnit.MINUTES);
+
+        log.info("Healthcheck 하트비트 시작 (5분 간격)");
+    }
+
     private static String getHelpMessage() {
         return "<b>사용 가능한 명령어:</b>\n" +
                 "/status - 현재 포지션 요약\n" +
@@ -574,6 +620,7 @@ public class BitgetTradingBot {
                 "/short on/off - Short 진입 허용/금지\n" +
                 "/tp [PERCENT] - 익절 비율 변경 (예: /tp 0.5)\n" +
                 "/sl [PERCENT] - 손절 비율 변경 (예: /sl 0.3)\n" +
+                "/optimize - 지금 파라미터 최적화 실행\n" +
                 "/help - 명령어 목록 표시";
     }
 }

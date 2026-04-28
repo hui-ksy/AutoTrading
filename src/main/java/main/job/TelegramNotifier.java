@@ -64,22 +64,40 @@ public class TelegramNotifier {
     
     private void processCommand(String command) {
         if (commandHandler == null) return;
-        
+
         log.info("텔레그램 명령어 수신: {}", command);
-        String response = commandHandler.handle(command);
-        
-        if (response != null && !response.isEmpty()) {
-            sendMessage(response);
+        try {
+            String response = commandHandler.handle(command);
+            if (response != null && !response.isEmpty()) {
+                sendMessage(response);
+            }
+        } catch (Exception e) {
+            log.error("명령어 처리 중 오류: {}", command, e);
+            sendMessage("⚠️ 명령어 처리 중 오류: " + e.getMessage());
         }
+    }
+
+    public void notifyCrash(String reason) {
+        if (!enabled) return;
+        log.info("[텔레그램 발송] 봇 비정상 종료 알림 | 원인: {}", reason);
+        sendMessage(String.format(
+            "🚨 <b>봇이 예기치 않게 종료되었습니다!</b>\n" +
+            "⏰ %s\n" +
+            "📌 원인: %s\n\n" +
+            "⟳ run_bot.bat이 10초 후 자동 재시작합니다.",
+            getCurrentTime(), reason
+        ));
     }
 
     public void sendStartupMessage() {
         if (!enabled) return;
+        log.info("[텔레그램 발송] 봇 시작 알림");
         sendMessage("🤖 <b>Bitget 트레이딩봇 시작</b>\n" + "⏰ " + getCurrentTime() + "\n\n명령어 목록을 보려면 /help 를 입력하세요.");
     }
 
     public void notifyEnterPosition(Position position, Signal signal, TradingConfig config) {
         if (!enabled) return;
+        log.info("[텔레그램 발송] 포지션 진입 알림 | {} {} @ {}", position.getSymbol(), position.getSide(), position.getEntryPrice());
         String sideEmoji = "BUY".equalsIgnoreCase(position.getSide()) ? "🟢" : "🔴";
         String sideText = "BUY".equalsIgnoreCase(position.getSide()) ? "롱(LONG)" : "숏(SHORT)";
         double marginUsed = (position.getEntryPrice() * position.getQuantity()) / config.getLeverage();
@@ -107,6 +125,7 @@ public class TelegramNotifier {
     // [수정] 포지션 인수 알림에 증거금 정보 추가
     public void notifyPositionTakeover(Position position, TradingConfig config) {
         if (!enabled) return;
+        log.info("[텔레그램 발송] 기존 포지션 인수 알림 | {} {}", position.getSymbol(), position.getSide());
         String sideEmoji = "🔵";
         String sideText = "BUY".equalsIgnoreCase(position.getSide()) ? "롱(LONG)" : "숏(SHORT)";
         double marginUsed = (position.getEntryPrice() * position.getQuantity()) / config.getLeverage();
@@ -131,11 +150,15 @@ public class TelegramNotifier {
 
     public void notifyReconciliationInfo(String message) {
         if (!enabled) return;
+        log.info("[텔레그램 발송] 포지션 동기화 알림 | {}", message);
         sendMessage("🔧 <b>포지션 동기화 알림</b>\n\n" + message);
     }
 
     public void notifyExitSummary(Trade trade, CumulativeStats stats) {
         if (!enabled) return;
+        log.info("[텔레그램 발송] 거래 종료 알림 | {} {} 손익: {}${}",
+            trade.getSymbol(), trade.getSide(),
+            trade.getProfit() >= 0 ? "+" : "", String.format("%.2f", trade.getProfit()));
 
         String tradeEmoji = trade.getProfit() >= 0 ? "💰" : "😢";
         String resultText = trade.getProfit() >= 0 ? "수익 실현" : "손실 확정";
@@ -171,7 +194,8 @@ public class TelegramNotifier {
     
     public void notifyStatusSummary(List<String> positionSummaries, CumulativeStats stats) {
         if (!enabled) return;
-        
+        log.info("[텔레그램 발송] 거래 현황 요약 알림 | 포지션 {}개", positionSummaries.size());
+
         StringBuilder sb = new StringBuilder();
         sb.append("📋 <b>현재 거래 상황 요약</b>\n\n");
         
@@ -199,7 +223,32 @@ public class TelegramNotifier {
 
     public void notifyError(String errorMessage) {
         if (!enabled) return;
+        log.info("[텔레그램 발송] 오류 알림 | {}", errorMessage);
         sendMessage("⚠️ <b>오류 발생!</b>\n" + errorMessage);
+    }
+
+    public void notifySignalDetected(String pair, String action, String reason) {
+        if (!enabled) return;
+        log.info("[텔레그램 발송] {} {} 신호 감지 | {}", pair, action, reason);
+        String emoji = "BUY".equals(action) ? "🟢" : "🔴";
+        String actionText = "BUY".equals(action) ? "롱(LONG) 진입 신호" : "숏(SHORT) 진입 신호";
+        sendMessage(String.format(
+            "📢 %s <b>%s %s 감지!</b>\n\n⏰ %s\n📌 %s",
+            emoji, pair, actionText, getCurrentTime(), reason
+        ));
+    }
+
+    public void notifyPeriodicStatus(String pair, int count, String reason) {
+        if (!enabled) return;
+        log.info("[텔레그램 발송] {} 정기 현황 보고 ({}회) | {}", pair, count, reason);
+        sendMessage(String.format(
+            "🔍 <b>%s 분석 현황</b>\n\n⏰ %s\n📊 %s\n<i>(누적 %d회 분석)</i>",
+            pair, getCurrentTime(), reason, count
+        ));
+    }
+
+    public void sendRawMessage(String text) {
+        sendMessage(text);
     }
 
     private void sendMessage(String text) {
@@ -217,7 +266,9 @@ public class TelegramNotifier {
 
     public void shutdown() {
         if (bot != null) {
+            log.info("[텔레그램 발송] 봇 종료 알림");
             sendMessage("🛑 <b>트레이딩봇 종료</b>\n" + "⏰ " + getCurrentTime());
+            try { Thread.sleep(1500); } catch (InterruptedException ignored) {}
             bot.shutdown();
         }
     }

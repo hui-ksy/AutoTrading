@@ -7,6 +7,7 @@ import main.bitget.PaperTradingClient;
 import main.bitget.TradeClient;
 import main.job.TelegramNotifier;
 import main.model.*;
+import main.strategy.StrategyFactory;
 import main.strategy.TradingStrategy;
 
 import java.time.Instant;
@@ -29,7 +30,7 @@ public class AutoTrader {
     @Getter
     private final TradeClient apiClient;
     private final PaperTradingClient paperClient;
-    private final TradingStrategy strategy;
+    private volatile TradingStrategy strategy;
     private final TradingConfig config;
     @Getter
     private final String pair;
@@ -43,6 +44,7 @@ public class AutoTrader {
     private volatile boolean isEntering;
     private volatile Signal entrySignal;
     private long enteringStartTime = 0;
+    private int analysisCount = 0;
     
     private final double fixedStopLossPercent;
     private final double fixedTakeProfitPercent;
@@ -76,6 +78,11 @@ public class AutoTrader {
         checkAndLoadExistingPosition();
     }
     
+    public void reloadStrategy() {
+        this.strategy = StrategyFactory.createStrategy(config);
+        log.info("[{}] 전략 인스턴스 재생성 완료 (새 파라미터 적용)", pair);
+    }
+
     public void stopBot() {
         this.running = false;
         log.info("[{}] 봇 일시 정지", pair);
@@ -169,11 +176,21 @@ public class AutoTrader {
             }
 
             Signal signal = strategy.generateSignal(candles, pair, currentPosition);
-            
-            if (signal.getAction() == Signal.Action.EXIT) {
+            analysisCount++;
+
+            if (signal.getAction() == Signal.Action.HOLD) {
+                log.info("[{}] #{} HOLD | {}", pair, analysisCount, signal.getReason());
+                // 30분마다 (30사이클 × 60초) 현재 지표 상태를 텔레그램으로 전송
+                if (analysisCount % 30 == 1) {
+                    telegram.notifyPeriodicStatus(pair, analysisCount, signal.getReason());
+                }
+            } else if (signal.getAction() == Signal.Action.EXIT) {
                 double currentPrice = (apiClient != null) ? apiClient.getTickerPrice(pair) : candles.get(candles.size() - 1).getClose();
+                log.info("[{}] #{} EXIT 신호 | {}", pair, analysisCount, signal.getReason());
                 executeExitPosition(signal.getReason(), currentPrice);
             } else if (signal.getAction() == Signal.Action.BUY || signal.getAction() == Signal.Action.SHORT) {
+                log.info("[{}] #{} ★ {} 신호 | {}", pair, analysisCount, signal.getAction(), signal.getReason());
+                telegram.notifySignalDetected(pair, signal.getAction().toString(), signal.getReason());
                 if (!hasPosition()) {
                     executeEnterPosition(signal, candles);
                 }

@@ -1,6 +1,7 @@
 package main.job;
 
 import lombok.extern.slf4j.Slf4j;
+import main.AutoTrader;
 import main.backtest.BacktestRunner;
 import main.model.OptimizationProposal;
 import main.model.TradingConfig;
@@ -31,12 +32,14 @@ public class DailyOptimizer {
 
     private final TradingConfig   config;
     private final TelegramNotifier telegram;
+    private final List<AutoTrader> traders;
     private final ScheduledExecutorService scheduler;
     private final AtomicReference<List<OptimizationProposal>> pendingProposals = new AtomicReference<>(null);
 
-    public DailyOptimizer(TradingConfig config, TelegramNotifier telegram) {
+    public DailyOptimizer(TradingConfig config, TelegramNotifier telegram, List<AutoTrader> traders) {
         this.config   = config;
         this.telegram = telegram;
+        this.traders  = traders;
         this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "daily-optimizer");
             t.setDaemon(true);
@@ -161,6 +164,7 @@ public class DailyOptimizer {
         config.setAtrTpMultiplier(p.tpMult());
         log.info("파라미터 인메모리 적용: rsiOS={}, rsiOB={}, SL={}, TP={}",
             p.rsiOS(), p.rsiOB(), p.slMult(), p.tpMult());
+        traders.forEach(AutoTrader::reloadStrategy);
         updateConfigFile(p);
     }
 

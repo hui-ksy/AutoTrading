@@ -145,7 +145,7 @@ public class BitgetTradingBot {
                 return "알 수 없는 명령어입니다. /help 를 입력하세요.";
             });
             telegram.sendStartupMessage();
-            dailyOptimizer = new DailyOptimizer(config, telegram);
+            dailyOptimizer = new DailyOptimizer(config, telegram, autoTraders);
 
             if (config.getMode() == TradingMode.PAPER) {
                 BitgetFuturesApiClient futuresApiClientForMarketData = new BitgetFuturesApiClient(

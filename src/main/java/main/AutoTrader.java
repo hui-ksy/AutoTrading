@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import main.bitget.BitgetFuturesApiClient;
 import main.bitget.PaperTradingClient;
 import main.bitget.TradeClient;
+import main.indicator.TechnicalIndicators;
 import main.job.TelegramNotifier;
 import main.model.*;
 import main.strategy.StrategyFactory;
@@ -25,6 +26,11 @@ public class AutoTrader {
     @FunctionalInterface
     public interface TradeHandler {
         void handle(Position closedPosition, double exitPrice, double pnl, double fee);
+    }
+
+    @FunctionalInterface
+    public interface DirectionChecker {
+        boolean isBlocked(String pair, Signal.Action action);
     }
 
     @Getter
@@ -48,12 +54,15 @@ public class AutoTrader {
     
     private final double fixedStopLossPercent;
     private final double fixedTakeProfitPercent;
-    
+    private final DirectionChecker directionChecker;
+    private final SymbolConfig symbolConfig;
+
     private static final DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault());
 
     public AutoTrader(TradeClient apiClient, PaperTradingClient paperClient,
                       TradingStrategy strategy, TradingConfig config,
-                      String pair, TelegramNotifier telegram, TradeHandler tradeHandler) {
+                      String pair, TelegramNotifier telegram, TradeHandler tradeHandler,
+                      DirectionChecker directionChecker) {
         this.apiClient = apiClient;
         this.paperClient = paperClient;
         this.strategy = strategy;
@@ -62,24 +71,27 @@ public class AutoTrader {
         this.telegram = telegram;
         this.scheduler = Executors.newSingleThreadScheduledExecutor();
         this.isEntering = false;
-        
+
         this.fixedStopLossPercent = config.getStopLossPercent() / 100.0;
         this.fixedTakeProfitPercent = config.getTakeProfitPercent() / 100.0;
         this.tradeHandler = tradeHandler;
+        this.directionChecker = directionChecker;
+        this.symbolConfig = config.getSymbolConfigs().computeIfAbsent(pair, SymbolConfig::defaults);
     }
 
     public void start() {
         log.info("자동 트레이딩 시작 - 페어: {}", pair);
         running = true;
         
-        scheduler.scheduleAtFixedRate(this::tickerLoop, 0, config.getTickerIntervalSeconds(), TimeUnit.SECONDS);
-        scheduler.scheduleAtFixedRate(this::candleLoop, 0, config.getCandleIntervalSeconds(), TimeUnit.SECONDS);
+        scheduler.scheduleAtFixedRate(this::tickerLoop, 0, symbolConfig.getTickerIntervalSeconds(), TimeUnit.SECONDS);
+        scheduler.scheduleAtFixedRate(this::candleLoop, 0, symbolConfig.getCandleIntervalSeconds(), TimeUnit.SECONDS);
         
         checkAndLoadExistingPosition();
     }
     
     public void reloadStrategy() {
-        this.strategy = StrategyFactory.createStrategy(config);
+        main.model.SymbolConfig sc = config.getSymbolConfigs().computeIfAbsent(pair, main.model.SymbolConfig::defaults);
+        this.strategy = StrategyFactory.createStrategy(config, sc);
         log.info("[{}] 전략 인스턴스 재생성 완료 (새 파라미터 적용)", pair);
     }
 
@@ -101,7 +113,7 @@ public class AutoTrader {
     
     public void closePosition(String reason) {
         if (currentPosition != null) {
-            double currentPrice = (apiClient != null) ? apiClient.getTickerPrice(pair) : 0.0;
+            double currentPrice = getCurrentPrice();
             if (currentPrice > 0) {
                 executeExitPosition(reason, currentPrice);
             } else {
@@ -110,11 +122,17 @@ public class AutoTrader {
         }
     }
 
+    private double getCurrentPrice() {
+        if (apiClient != null) return apiClient.getTickerPrice(pair);
+        if (paperClient != null) return paperClient.getTickerPrice(pair);
+        return 0.0;
+    }
+
     private void tickerLoop() {
         if (!running || !hasPosition()) return;
-        
+
         try {
-            double currentPrice = (apiClient != null) ? apiClient.getTickerPrice(pair) : 0.0;
+            double currentPrice = getCurrentPrice();
             if (currentPrice > 0) {
                 managePosition(currentPrice);
             }
@@ -180,8 +198,8 @@ public class AutoTrader {
 
             if (signal.getAction() == Signal.Action.HOLD) {
                 log.info("[{}] #{} HOLD | {}", pair, analysisCount, signal.getReason());
-                // 30분마다 (30사이클 × 60초) 현재 지표 상태를 텔레그램으로 전송
-                if (analysisCount % 30 == 1) {
+                // 30분마다 (120사이클 × 15초) 현재 지표 상태를 텔레그램으로 전송
+                if (analysisCount % 120 == 1) {
                     telegram.notifyPeriodicStatus(pair, analysisCount, signal.getReason());
                 }
             } else if (signal.getAction() == Signal.Action.EXIT) {
@@ -190,9 +208,13 @@ public class AutoTrader {
                 executeExitPosition(signal.getReason(), currentPrice);
             } else if (signal.getAction() == Signal.Action.BUY || signal.getAction() == Signal.Action.SHORT) {
                 log.info("[{}] #{} ★ {} 신호 | {}", pair, analysisCount, signal.getAction(), signal.getReason());
-                telegram.notifySignalDetected(pair, signal.getAction().toString(), signal.getReason());
-                if (!hasPosition()) {
-                    executeEnterPosition(signal, candles);
+                if (directionChecker != null && directionChecker.isBlocked(pair, signal.getAction())) {
+                    log.info("[{}] 방향성 필터: 다른 코인 반대 포지션으로 진입 차단 ({})", pair, signal.getAction());
+                } else {
+                    telegram.notifySignalDetected(pair, signal.getAction().toString(), signal.getReason());
+                    if (!hasPosition()) {
+                        executeEnterPosition(signal, candles);
+                    }
                 }
             }
             
@@ -215,10 +237,10 @@ public class AutoTrader {
                 
                 log.info("[{}] 기존 TP/SL 주문을 초기화하고 새로 설정합니다.", pair);
                 futuresClient.cancelAllPlanOrders(pair);
-                
+
                 try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
-                
-                setFixedTpSl(existingPosition); 
+
+                setAtrTpSl(existingPosition);
                 placeExchangeOrders(existingPosition);
                 
                 telegram.notifyPositionTakeover(existingPosition, config);
@@ -321,8 +343,16 @@ public class AutoTrader {
                 ((BitgetFuturesApiClient) apiClient).cancelAllPlanOrders(pair);
                 try { Thread.sleep(500); } catch (InterruptedException ignored) {}
             }
-            
-            setFixedTpSl(this.currentPosition);
+
+            if (this.entrySignal != null && this.entrySignal.getStopLoss() > 0 && this.entrySignal.getTakeProfit() > 0) {
+                this.currentPosition.setStopLoss(this.entrySignal.getStopLoss());
+                this.currentPosition.setTakeProfit(this.entrySignal.getTakeProfit());
+                log.info("[{}] ATR 기반 손익절 설정 - SL: {}, TP: {}", pair,
+                        String.format("%.6f", this.entrySignal.getStopLoss()),
+                        String.format("%.6f", this.entrySignal.getTakeProfit()));
+            } else {
+                setFixedTpSl(this.currentPosition);
+            }
             placeExchangeOrders(this.currentPosition);
             
             telegram.notifyEnterPosition(this.currentPosition, this.entrySignal, config);
@@ -441,6 +471,34 @@ public class AutoTrader {
         
         currentPosition = null;
         isEntering = false;
+    }
+
+    private void setAtrTpSl(Position position) {
+        try {
+            List<Candle> candles = getCandles(config.getTimeframe(), config.getCandleLimit());
+            if (candles != null && !candles.isEmpty()) {
+                double atr = TechnicalIndicators.calculateATR(candles, 14);
+                if (atr > 0) {
+                    boolean isLong = "BUY".equals(position.getSide());
+                    double entry = position.getEntryPrice();
+                    double sl = isLong
+                            ? entry - atr * symbolConfig.getSlMult()
+                            : entry + atr * symbolConfig.getSlMult();
+                    double tp = isLong
+                            ? entry + atr * symbolConfig.getTpMult()
+                            : entry - atr * symbolConfig.getTpMult();
+                    position.setStopLoss(sl);
+                    position.setTakeProfit(tp);
+                    log.info("[{}] ATR 기반 손익절 설정 - SL: {}, TP: {} (ATR={}, SLx{}, TPx{})",
+                            pair, String.format("%.6f", sl), String.format("%.6f", tp),
+                            String.format("%.6f", atr), symbolConfig.getSlMult(), symbolConfig.getTpMult());
+                    return;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[{}] ATR 기반 SL/TP 계산 실패 — 고정값 사용: {}", pair, e.getMessage());
+        }
+        setFixedTpSl(position);
     }
 
     private void setFixedTpSl(Position position) {

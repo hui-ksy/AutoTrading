@@ -2,10 +2,23 @@ package main.strategy;
 
 import lombok.extern.slf4j.Slf4j;
 import main.model.StrategyType;
+import main.model.SymbolConfig;
 import main.model.TradingConfig;
 
 @Slf4j
 public class StrategyFactory {
+
+    public static TradingStrategy createStrategy(TradingConfig config, SymbolConfig sc) {
+        log.info("전략 생성: {} ({})", sc.getStrategyType(), sc.getSymbol());
+        if (sc.getStrategyType() == StrategyType.BOLLINGER_BAND_REVERSION) {
+            return new BollingerBandReversionStrategy(
+                sc.getBbPeriod(), sc.getBbStdDev(),
+                sc.getRsiOversold(), sc.getRsiOverbought(),
+                sc.getSlMult(), sc.getTpMult());
+        }
+        return createStrategy(config);
+    }
+
     public static TradingStrategy createStrategy(TradingConfig config) {
         StrategyType type = config.getStrategyType();
         log.info("전략 생성: {}", type);

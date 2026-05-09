@@ -7,8 +7,8 @@ group = "com.trading"
 version = "1.0.0"
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
 }
 
 repositories {
@@ -62,7 +62,7 @@ tasks.test {
 }
 
 application {
-    mainClass.set("main.AutoTrader")
+    mainClass.set("main.BitgetTradingBot")
 }
 
 tasks.register<JavaExec>("backtest") {
@@ -81,8 +81,29 @@ tasks.register<JavaExec>("candleTest") {
 
 tasks.jar {
     manifest {
-        attributes["Main-Class"] = "com.trading.bitget.BitgetTradingBot"
+        attributes["Main-Class"] = "main.BitgetTradingBot"
     }
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) })
+}
+
+tasks.register<Exec>("package") {
+    group = "trading"
+    description = "Create AutoTrading.exe native package (shows as AutoTrading.exe in Task Manager)"
+    dependsOn(tasks.jar)
+
+    val jarFile = tasks.jar.get().archiveFile.get().asFile
+    val outputDir = layout.buildDirectory.get().dir("package").asFile
+
+    doFirst { delete(outputDir) }
+
+    commandLine(
+        "jpackage",
+        "--type", "app-image",
+        "--name", "AutoTrading",
+        "--main-jar", jarFile.name,
+        "--input", jarFile.parentFile.absolutePath,
+        "--main-class", "main.BitgetTradingBot",
+        "--dest", outputDir.absolutePath
+    )
 }

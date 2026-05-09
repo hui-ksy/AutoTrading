@@ -38,7 +38,7 @@ public class BacktestRunner {
     private static final double FEE_PCT  = 0.06;     // 편도 수수료 %
 
     public static void main(String[] args) {
-        runRsiRelaxedSweep();
+        runMultiPairLongSweep();
     }
 
     // ── 최근 1일 체크 (오늘 거래가 없었던 게 맞는지 검증) ─────────────────
@@ -1680,8 +1680,8 @@ public class BacktestRunner {
 
         int[]    rsiOversolds   = {25, 30, 35, 40};
         int[]    rsiOverboughts = {60, 65, 70};
-        double[] slMults        = {1.2, 1.5, 1.8};
-        double[] tpMults        = {2.0, 2.5, 3.0};
+        double[] slMults        = {1.5, 2.0, 2.5, 3.5, 4.0};
+        double[] tpMults        = {2.5, 3.5, 4.0, 5.0, 6.0};
 
         TradingConfig cfg = TradingConfig.getInstance();
         List<Candle> candles = fetchCandles(cfg, symbol, timeframe, candleCount);
@@ -1710,6 +1710,150 @@ public class BacktestRunner {
 
         log.info("runSweepForOptimizer 완료: {} 조합, {}일", results.size(), String.format("%.1f", totalDays));
         return results;
+    }
+
+    // ── 넓은 SL/TP 스윕 (BB17/2.6, RSI30/70 고정 — SL×1.5~4.0, TP×2.0~6.0) ──
+    public static void runWideSlTpSweep() {
+        final String symbol    = "PEPEUSDT";
+        final String timeframe = "15m";
+        final int    candleCnt = 3_000;
+        final int    warmup    = 40;
+        final int    leverage  = 10;
+
+        final int    bbPeriod      = 17;
+        final double bbStdDev      = 2.6;
+        final double rsiOversold   = 30.0;
+        final double rsiOverbought = 70.0;
+
+        double[] slMults = {1.5, 2.0, 2.5, 3.0, 3.5, 4.0};
+        double[] tpMults = {2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0};
+
+        log.info("===== 넓은 SL/TP 스윕 시작 (BB17/2.6, RSI30/70 고정) =====");
+        TradingConfig config = TradingConfig.getInstance();
+        List<Candle> candles = fetchCandles(config, symbol, timeframe, candleCnt);
+        if (candles.isEmpty()) return;
+
+        double totalDays = (candles.get(candles.size() - 1).getTimestamp()
+            - candles.get(warmup).getTimestamp()) / (1000.0 * 60 * 60 * 24);
+        log.info("[{}] 캔들 {}개, {}일", symbol, candles.size(), String.format("%.1f", totalDays));
+
+        List<BB1mSweepResult> results = new ArrayList<>();
+        for (double sl : slMults) {
+            for (double tp : tpMults) {
+                if (tp <= sl) continue;
+                TradingStrategy strategy = new BollingerBandReversionStrategy(
+                    bbPeriod, bbStdDev, rsiOversold, rsiOverbought, sl, tp);
+                Backtester bt = new Backtester(strategy, candles, INIT_BAL, FEE_PCT, warmup, symbol, leverage);
+                BacktestResult r = bt.run();
+                double tpd = totalDays > 0 ? r.getTotalTrades() / totalDays : 0;
+                results.add(new BB1mSweepResult(bbPeriod, bbStdDev, rsiOversold, rsiOverbought, sl, tp, r, tpd, 0));
+            }
+        }
+
+        String dline = "═".repeat(86);
+        String line  = "─".repeat(86);
+        System.out.println();
+        System.out.println(dline);
+        System.out.printf("  [%s] 넓은 SL/TP 스윕 (BB17/2.6, RSI30/70 고정, 15m, %dx, %.1f일)%n",
+            symbol, leverage, totalDays);
+        System.out.printf("  현재 설정: SL=1.5× TP=2.0×  |  스윕 범위: SL 1.5~4.0, TP 2.0~6.0%n");
+        System.out.println(dline);
+        System.out.printf("%-4s %-4s %-5s %-5s %-5s %-5s │ %5s %6s %7s %7s %6s %6s%n",
+            "bbP", "bbSD", "osRS", "obRS", "SL×", "TP×",
+            "건수", "승률%", "건/일", "수익%", "MDD%", "Sharpe");
+        System.out.println(line);
+        System.out.println("◆ 전체 결과 (수익률 정렬)");
+        results.stream()
+            .filter(r -> r.result.getTotalTrades() >= 3)
+            .sorted(Comparator.comparingDouble((BB1mSweepResult r) -> r.result.getTotalReturnPct()).reversed())
+            .forEach(r -> {
+                BacktestResult br = r.result;
+                String flag = br.getTotalReturnPct() >= 100 ? " ★★★"
+                    : br.getTotalReturnPct() >= 50 ? " ★★"
+                    : br.getTotalReturnPct() > 0 ? " ★" : "";
+                System.out.printf("%-4d %-4.1f %-5.0f %-5.0f %-5.1f %-5.1f │ %5d %6.1f %7.2f %7.2f %6.2f %6.2f%s%n",
+                    r.bbPeriod, r.bbStdDev, r.rsiOversold, r.rsiOverbought, r.sl, r.tp,
+                    br.getTotalTrades(), br.getWinRate(), r.tradesPerDay,
+                    br.getTotalReturnPct(), br.getMaxDrawdownPct(), br.getSharpeRatio(), flag);
+            });
+        System.out.println(line);
+        long positive = results.stream().filter(r -> r.result.getTotalReturnPct() > 0).count();
+        System.out.printf("%n플러스 수익 조합: %d/%d  |  기간: %.1f일  레버리지: %dx%n",
+            positive, results.size(), totalDays, leverage);
+        log.info("===== 넓은 SL/TP 스윕 종료 ({} 조합) =====", results.size());
+    }
+
+    // ── XRP/DOGE/PEPE 장기(90일) 스윕 ───────────────────────────────────
+    public static void runMultiPairLongSweep() {
+        final String   timeframe = "15m";
+        final int      candleCnt = 8_700;   // 90일 × 24h × 4 = 8640 + 워밍업
+        final int      warmup    = 40;
+        final int      leverage  = 10;
+        final int      bbPeriod  = 17;
+        final double   bbStdDev  = 2.6;
+
+        int[]    rsiOversolds   = {25, 30, 35};
+        int[]    rsiOverboughts = {65, 70};
+        double[] slMults        = {2.0, 2.5, 3.0, 3.5, 4.0};
+        double[] tpMults        = {3.5, 4.0, 5.0, 6.0, 7.0};
+        // DOGE 대체 후보 탐색: PEPE/SOL 기준값 포함, 신규 후보들 함께 비교
+        String[] symbols        = {"XRPUSDT", "BNBUSDT", "AVAXUSDT", "LINKUSDT", "SUIUSDT", "WIFUSDT", "PEPEUSDT", "SOLUSDT"};
+
+        TradingConfig config = TradingConfig.getInstance();
+        String dline = "═".repeat(92);
+        String line  = "─".repeat(92);
+
+        for (String symbol : symbols) {
+            List<Candle> candles = fetchCandles(config, symbol, timeframe, candleCnt);
+            if (candles.isEmpty()) { log.warn("[{}] 캔들 없음, 스킵", symbol); continue; }
+
+            double totalDays = (candles.get(candles.size() - 1).getTimestamp()
+                - candles.get(warmup).getTimestamp()) / (1000.0 * 60 * 60 * 24);
+            log.info("[{}] 캔들 {}개, {}일 스윕 시작", symbol, candles.size(), String.format("%.1f", totalDays));
+
+            List<BB1mSweepResult> results = new ArrayList<>();
+            for (int rsiOS : rsiOversolds) {
+                for (int rsiOB : rsiOverboughts) {
+                    for (double sl : slMults) {
+                        for (double tp : tpMults) {
+                            if (tp <= sl) continue;
+                            TradingStrategy strategy = new BollingerBandReversionStrategy(
+                                bbPeriod, bbStdDev, rsiOS, rsiOB, sl, tp);
+                            Backtester bt = new Backtester(
+                                strategy, candles, INIT_BAL, FEE_PCT, warmup, symbol, leverage);
+                            BacktestResult r = bt.run();
+                            double tpd = totalDays > 0 ? r.getTotalTrades() / totalDays : 0;
+                            results.add(new BB1mSweepResult(bbPeriod, bbStdDev, rsiOS, rsiOB, sl, tp, r, tpd, 0));
+                        }
+                    }
+                }
+            }
+
+            log.info("{}", dline);
+            log.info("{}", String.format("  [%s]  BB17/2.6  |  15m  %dx  |  기간: %.1f일  |  조합: %d",
+                symbol, leverage, totalDays, results.size()));
+            log.info("{}", String.format("%-5s %-5s %-5s %-5s │ %5s %6s %7s %8s %7s %7s",
+                "osRS", "obRS", "SL×", "TP×", "건수", "승률%", "건/일", "수익%", "MDD%", "Sharpe"));
+            log.info("{}", line);
+            log.info("◆ TOP 15 (수익률 정렬, 3건 이상)");
+            results.stream()
+                .filter(r -> r.result.getTotalTrades() >= 3 && r.result.getTotalReturnPct() > 0)
+                .sorted(Comparator.comparingDouble((BB1mSweepResult r) -> r.result.getTotalReturnPct()).reversed())
+                .limit(15)
+                .forEach(r -> {
+                    BacktestResult br = r.result;
+                    String flag = br.getTotalReturnPct() >= 200 ? " ★★★"
+                        : br.getTotalReturnPct() >= 100 ? " ★★"
+                        : " ★";
+                    log.info("{}", String.format("%-5.0f %-5.0f %-5.1f %-5.1f │ %5d %6.1f %7.2f %8.2f %7.2f %7.2f%s",
+                        r.rsiOversold, r.rsiOverbought, r.sl, r.tp,
+                        br.getTotalTrades(), br.getWinRate(), r.tradesPerDay,
+                        br.getTotalReturnPct(), br.getMaxDrawdownPct(), br.getSharpeRatio(), flag));
+                });
+            log.info("{}", line);
+            long positive = results.stream().filter(r -> r.result.getTotalReturnPct() > 0).count();
+            log.info("{}", String.format("플러스 수익: %d/%d  |  기간: %.1f일", positive, results.size(), totalDays));
+        }
     }
 
     private static String formatTs(long ts) {

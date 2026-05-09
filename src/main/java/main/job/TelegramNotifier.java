@@ -30,6 +30,15 @@ public class TelegramNotifier {
     private final DecimalFormat usdtFormat = new DecimalFormat("#,##0.00");
     private final DecimalFormat percentFormat = new DecimalFormat("0.00");
     private final DateTimeFormatter timeFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    private String formatPrice(double price) {
+        if (price == 0) return "0.00";
+        double abs = Math.abs(price);
+        if (abs < 0.0001) return String.format("%.8f", price);
+        if (abs < 0.01)   return String.format("%.6f", price);
+        if (abs < 1.0)    return String.format("%.4f", price);
+        return priceFormat.format(price);
+    }
     
     private CommandHandler commandHandler;
 
@@ -113,11 +122,11 @@ public class TelegramNotifier {
                 position.getSymbol(),
                 sideText,
                 position.getQuantity(),
-                priceFormat.format(position.getEntryPrice()),
+                formatPrice(position.getEntryPrice()),
                 usdtFormat.format(marginUsed),
                 config.getLeverage(),
-                priceFormat.format(position.getStopLoss()),
-                priceFormat.format(position.getTakeProfit())
+                formatPrice(position.getStopLoss()),
+                formatPrice(position.getTakeProfit())
         );
         sendMessage(text);
     }
@@ -137,11 +146,11 @@ public class TelegramNotifier {
                         "<b>평단:</b> $%s\n" +
                         "<b>증거금:</b> $%s (레버리지 %dx)\n\n" +
                         "이제부터 해당 포지션의 익절/손절 관리를 시작합니다.",
-                sideEmoji, 
+                sideEmoji,
                 position.getSymbol(),
                 sideText,
                 position.getQuantity(),
-                priceFormat.format(position.getEntryPrice()),
+                formatPrice(position.getEntryPrice()),
                 usdtFormat.format(marginUsed),
                 config.getLeverage()
         );
@@ -172,7 +181,7 @@ public class TelegramNotifier {
                 tradeEmoji, resultText, trade.getSymbol(), sideText,
                 trade.getProfit() >= 0 ? "+" : "", trade.getProfit(), trade.getProfitPercent(),
                 trade.getFee(),
-                priceFormat.format(trade.getEntryPrice()), priceFormat.format(trade.getExitPrice())
+                formatPrice(trade.getEntryPrice()), formatPrice(trade.getExitPrice())
         );
 
         String profitEmoji = stats.getTotalProfit() >= 0 ? "📈" : "📉";

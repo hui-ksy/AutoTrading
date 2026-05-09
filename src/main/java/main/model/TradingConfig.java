@@ -2,7 +2,10 @@ package main.model;
 
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
+import com.typesafe.config.ConfigValue;
 import lombok.Data;
+
+import java.util.Map;
 
 @Data
 public class TradingConfig {
@@ -83,10 +86,15 @@ public class TradingConfig {
     private String telegramChatId;
     private long reportIntervalHours;
 
+    // Healthchecks.io
+    private String healthcheckPingUrl;
+
     // 실행 주기 설정
     private long candleIntervalSeconds;
     private long tickerIntervalSeconds;
     private long positionStatusMinutes;
+
+    private java.util.concurrent.ConcurrentHashMap<String, SymbolConfig> symbolConfigs = new java.util.concurrent.ConcurrentHashMap<>();
 
     private TradingConfig() {}
 
@@ -174,10 +182,38 @@ public class TradingConfig {
         tc.setTelegramChatId(config.getString("telegram.chatId"));
         tc.setReportIntervalHours(config.getLong("telegram.reportIntervalHours"));
 
+        // Healthchecks.io
+        tc.setHealthcheckPingUrl(config.hasPath("healthcheck.pingUrl") ? config.getString("healthcheck.pingUrl") : "");
+
         // 실행 주기
         tc.setCandleIntervalSeconds(config.hasPath("trading.candleIntervalSeconds") ? config.getLong("trading.candleIntervalSeconds") : 5);
         tc.setTickerIntervalSeconds(config.hasPath("trading.tickerIntervalSeconds") ? config.getLong("trading.tickerIntervalSeconds") : 1);
         tc.setPositionStatusMinutes(config.getLong("trading.positionStatusMinutes"));
+
+        // 심볼별 설정 로드 (실행 주기 설정 이후에 파싱해야 fallback 값이 올바름)
+        if (config.hasPath("symbols")) {
+            Config symbolsBlock = config.getConfig("symbols");
+            for (Map.Entry<String, ConfigValue> entry : symbolsBlock.root().entrySet()) {
+                String sym = entry.getKey();
+                Config sc = symbolsBlock.getConfig(sym);
+                SymbolConfig s = new SymbolConfig();
+                s.setSymbol(sym);
+                s.setStrategyType(StrategyType.BOLLINGER_BAND_REVERSION);
+                s.setTimeframe(sc.hasPath("timeframe") ? sc.getString("timeframe") : "15m");
+                s.setLeverage(sc.hasPath("leverage") ? sc.getInt("leverage") : tc.getLeverage());
+                s.setCandleLimit(sc.hasPath("candleLimit") ? sc.getInt("candleLimit") : tc.getCandleLimit());
+                s.setBbPeriod(sc.hasPath("bbPeriod") ? sc.getInt("bbPeriod") : tc.getBollingerBandsPeriod());
+                s.setBbStdDev(sc.hasPath("bbStdDev") ? sc.getDouble("bbStdDev") : tc.getBollingerBandsStdDev());
+                s.setRsiPeriod(sc.hasPath("rsiPeriod") ? sc.getInt("rsiPeriod") : tc.getBollingerBandsRsiPeriod());
+                s.setRsiOversold(sc.hasPath("rsiOversold") ? sc.getInt("rsiOversold") : (int) tc.getBollingerBandsRsiOversold());
+                s.setRsiOverbought(sc.hasPath("rsiOverbought") ? sc.getInt("rsiOverbought") : (int) tc.getBollingerBandsRsiOverbought());
+                s.setSlMult(sc.hasPath("slMult") ? sc.getDouble("slMult") : tc.getAtrSlMultiplier());
+                s.setTpMult(sc.hasPath("tpMult") ? sc.getDouble("tpMult") : tc.getAtrTpMultiplier());
+                s.setCandleIntervalSeconds(sc.hasPath("candleIntervalSeconds") ? sc.getLong("candleIntervalSeconds") : tc.getCandleIntervalSeconds());
+                s.setTickerIntervalSeconds(sc.hasPath("tickerIntervalSeconds") ? sc.getLong("tickerIntervalSeconds") : tc.getTickerIntervalSeconds());
+                tc.getSymbolConfigs().put(sym, s);
+            }
+        }
 
         return tc;
     }

@@ -11,10 +11,14 @@ import main.model.*;
 import main.strategy.StrategyFactory;
 import main.strategy.TradingStrategy;
 
+import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +42,7 @@ public class BitgetTradingBot {
     private static List<AutoTrader> autoTraders = new ArrayList<>();
     private static volatile boolean botRunning = true;
     private static volatile boolean gracefulShutdown = false;
+    private static volatile boolean directionFilterEnabled = true;
 
     private static PaperTradingClient globalPaperClient;
     private static DailyOptimizer dailyOptimizer;
@@ -134,9 +139,36 @@ public class BitgetTradingBot {
                     return addTrader(symbol);
                 }
 
+                if (command.equals("/direction on")) {
+                    directionFilterEnabled = true;
+                    return "✅ 방향성 필터가 활성화되었습니다. (LONG 중엔 SHORT 차단, SHORT 중엔 LONG 차단)";
+                }
+                if (command.equals("/direction off")) {
+                    directionFilterEnabled = false;
+                    return "🛑 방향성 필터가 비활성화되었습니다.";
+                }
+
+                if (command.startsWith("/percent ")) {
+                    try {
+                        double pct = Double.parseDouble(command.substring("/percent ".length()).trim());
+                        if (pct <= 0 || pct > 100) return "❌ 1~100 사이 값을 입력하세요. 예: /percent 10";
+                        config.setOrderPercentOfBalance(pct);
+                        updateConfigPercent(pct);
+                        return String.format("✅ 진입 비율이 <b>%.1f%%</b>로 변경되었습니다.", pct);
+                    } catch (NumberFormatException e) {
+                        return "❌ 잘못된 숫자 형식입니다. 예: /percent 10";
+                    }
+                }
+
                 if (command.equals("/optimize")) {
                     if (dailyOptimizer != null) dailyOptimizer.triggerNow();
-                    return "⏳ 파라미터 최적화를 시작합니다. 잠시 후 결과가 전송됩니다.";
+                    return "⏳ 전체 코인 파라미터 최적화를 시작합니다. 잠시 후 결과가 전송됩니다.";
+                }
+                if (command.startsWith("/optimize ")) {
+                    String sym = command.substring(10).trim().toUpperCase();
+                    if (!sym.endsWith("USDT")) sym = sym + "USDT";
+                    if (dailyOptimizer != null) dailyOptimizer.triggerNow(sym);
+                    return "⏳ " + sym + " 파라미터 최적화를 시작합니다. 잠시 후 결과가 전송됩니다.";
                 }
 
                 String optimizerReply = dailyOptimizer != null ? dailyOptimizer.handleReply(command) : null;
@@ -160,7 +192,7 @@ public class BitgetTradingBot {
                     ? config.getTradingPairs()
                     : List.of(config.getTradingPair());
 
-            autoTraders = new ArrayList<>();
+            autoTraders.clear();
             for (String pair : pairs) {
                 addTraderInternal(pair);
                 try {
@@ -211,13 +243,28 @@ public class BitgetTradingBot {
         }
     }
 
+    private static boolean isDirectionBlocked(String thisPair, Signal.Action action) {
+        if (!directionFilterEnabled) return false;
+        for (AutoTrader trader : autoTraders) {
+            if (trader.getPair().equalsIgnoreCase(thisPair)) continue;
+            Position pos = trader.getCurrentPosition();
+            if (pos == null) continue;
+            String side = pos.getSide();
+            if ("BUY".equals(side) && action == Signal.Action.SHORT) return true;
+            if ("SHORT".equals(side) && action == Signal.Action.BUY) return true;
+        }
+        return false;
+    }
+
     private static void addTraderInternal(String pair) {
         TradeClient apiClient = (config.getMode() == TradingMode.LIVE) ? createApiClient(config, pair) : null;
         if (apiClient != null && initialBalance == 0) {
             initialBalance = ((BitgetFuturesApiClient) apiClient).getAccountEquity("USDT");
         }
-        TradingStrategy strategy = StrategyFactory.createStrategy(config);
-        AutoTrader trader = new AutoTrader(apiClient, globalPaperClient, strategy, config, pair, telegram, BitgetTradingBot::recordAndReportTrade);
+        main.model.SymbolConfig sc = config.getSymbolConfigs().computeIfAbsent(pair, main.model.SymbolConfig::defaults);
+        TradingStrategy strategy = StrategyFactory.createStrategy(config, sc);
+        AutoTrader trader = new AutoTrader(apiClient, globalPaperClient, strategy, config, pair, telegram,
+                BitgetTradingBot::recordAndReportTrade, BitgetTradingBot::isDirectionBlocked);
         autoTraders.add(trader);
     }
 
@@ -496,7 +543,7 @@ public class BitgetTradingBot {
                 telegram.notifyStatusSummary(telegramSummaries, stats);
             }
 
-        }, 2, 2, TimeUnit.MINUTES);
+        }, 5, 5, TimeUnit.MINUTES);
     }
 
     private static String getStatusSummary() {
@@ -587,6 +634,19 @@ public class BitgetTradingBot {
         }
     }
 
+    private static void updateConfigPercent(double pct) {
+        try {
+            var path = Paths.get("src/main/resources/application.conf");
+            String content = Files.readString(path, StandardCharsets.UTF_8);
+            content = content.replaceAll("orderPercentOfBalance\\s*=\\s*[0-9.]+",
+                    String.format("orderPercentOfBalance = %.1f", pct));
+            Files.writeString(path, content, StandardCharsets.UTF_8);
+            log.info("application.conf orderPercentOfBalance → {}% 업데이트 완료", pct);
+        } catch (IOException e) {
+            log.error("application.conf 업데이트 실패: {}", e.getMessage());
+        }
+    }
+
     private static void startHeartbeatThread(String pingUrl) {
         if (pingUrl == null || pingUrl.isBlank()) return;
 
@@ -620,7 +680,10 @@ public class BitgetTradingBot {
                 "/short on/off - Short 진입 허용/금지\n" +
                 "/tp [PERCENT] - 익절 비율 변경 (예: /tp 0.5)\n" +
                 "/sl [PERCENT] - 손절 비율 변경 (예: /sl 0.3)\n" +
-                "/optimize - 지금 파라미터 최적화 실행\n" +
+                "/percent [N] - 진입 비율 변경 (예: /percent 10)\n" +
+                "/direction on/off - 방향성 필터 활성화/비활성화\n" +
+                "/optimize - 전체 코인 파라미터 최적화\n" +
+                "/optimize [코인] - 특정 코인만 최적화 (예: /optimize PEPE)\n" +
                 "/help - 명령어 목록 표시";
     }
 }

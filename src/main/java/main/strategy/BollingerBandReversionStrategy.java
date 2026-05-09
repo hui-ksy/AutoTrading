@@ -63,6 +63,15 @@ public class BollingerBandReversionStrategy implements TradingStrategy {
         this.atrTpMult     = atrTpMult;
     }
 
+    private static String fmt(double v) {
+        double abs = Math.abs(v);
+        if (abs == 0)     return "0";
+        if (abs < 0.0001) return String.format("%.8f", v);
+        if (abs < 0.01)   return String.format("%.6f", v);
+        if (abs < 1.0)    return String.format("%.4f", v);
+        return String.format("%.4f", v);
+    }
+
     @Override
     public Signal generateSignal(List<Candle> candles, String pair, Position position) {
         int minNeeded = Math.max(bbPeriod, rsiPeriod + 1) + 5;
@@ -82,7 +91,8 @@ public class BollingerBandReversionStrategy implements TradingStrategy {
 
         // ── 포지션 보유 중: SL/TP는 Backtester 처리, 여기서는 HOLD ──────
         if (position != null) {
-            return hold("포지션 유지 (SL/TP 대기)");
+            return hold(String.format("포지션 유지 | RSI=%.1f | Close=%s | BB[%s~%s]",
+                rsi, fmt(close), fmt(bb.getLowerBand()), fmt(bb.getUpperBand())));
         }
 
         // ── Long 진입: BB 하단 이탈 + RSI 과매도 ────────────────────
@@ -94,8 +104,8 @@ public class BollingerBandReversionStrategy implements TradingStrategy {
                 .entryPrice(close)
                 .stopLoss(sl)
                 .takeProfit(tp)
-                .reason(String.format("BB Long: RSI=%.1f close=%.0f lower=%.0f",
-                    rsi, close, bb.getLowerBand()))
+                .reason(String.format("BB Long | RSI=%.1f (< %.0f) | Close=%s < BB하단=%s | ATR=%s",
+                    rsi, rsiOversold, fmt(close), fmt(bb.getLowerBand()), fmt(atr)))
                 .build();
         }
 
@@ -108,12 +118,13 @@ public class BollingerBandReversionStrategy implements TradingStrategy {
                 .entryPrice(close)
                 .stopLoss(sl)
                 .takeProfit(tp)
-                .reason(String.format("BB Short: RSI=%.1f close=%.0f upper=%.0f",
-                    rsi, close, bb.getUpperBand()))
+                .reason(String.format("BB Short | RSI=%.1f (> %.0f) | Close=%s > BB상단=%s | ATR=%s",
+                    rsi, rsiOverbought, fmt(close), fmt(bb.getUpperBand()), fmt(atr)))
                 .build();
         }
 
-        return hold("조건 미충족");
+        return hold(String.format("조건 미충족 | RSI=%.1f (기준: <%.0f/>%.0f) | Close=%s | BB[%s~%s] | ATR=%s",
+            rsi, rsiOversold, rsiOverbought, fmt(close), fmt(bb.getLowerBand()), fmt(bb.getUpperBand()), fmt(atr)));
     }
 
     private Signal hold(String reason) {

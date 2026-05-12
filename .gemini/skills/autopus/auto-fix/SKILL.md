@@ -1,0 +1,56 @@
+---
+name: auto-fix
+version: "1.0.0"
+description: 버그 수정 — 재현 테스트 우선, 최소 변경 원칙
+platform: gemini-cli
+project: AutoTrading
+mode: full
+triggers:
+  - "fix"
+  - "bug"
+  - "버그"
+---
+
+# auto-fix — 버그 수정
+
+**프로젝트**: AutoTrading | **모드**: full
+
+## 설명
+
+버그를 재현하고 최소한의 변경으로 수정합니다.
+
+## 사용법
+
+```
+@auto-fix "버그 설명"
+```
+
+## 절차
+
+1. 재현 테스트 작성 (먼저)
+2. 테스트 실패 확인
+3. 최소 수정
+4. 테스트 통과 확인
+5. 전체 스위트 실행
+
+## Branding Formats
+
+### Error Recovery (show on fix failures)
+
+```
+✗ {subcommand} 실패: {error description}
+  복구 옵션:
+  1. 오류 내용을 확인하고 재시도: /auto fix {args}
+  2. /auto doctor  (시스템 상태 진단)
+```
+
+### Next Step Auto-Detection (show after fix completes)
+
+```
+다음 단계: {recommendation}
+```
+
+Detection order:
+1. SPEC status `implemented` → `✓ 구현 완료 → /auto sync {SPEC-ID}`
+2. SPEC status `approved` → `✓ SPEC {SPEC-ID} 승인됨 → /auto go {SPEC-ID}`
+3. No SPEC context → recommend running `/auto review` to verify the fix

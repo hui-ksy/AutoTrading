@@ -1,0 +1,23 @@
+{
+  "$schema": "https://raw.githubusercontent.com/anthropics/claude-code/main/.mcp.schema.json",
+  "mcpServers": {
+    "context7": {
+      "$comment": "Up-to-date documentation and code examples via Context7",
+      "args": [
+        "-l",
+        "-c",
+        "exec npx -y @upstash/context7-mcp@latest"
+      ],
+      "command": "/bin/bash"
+    },
+    "sequential-thinking": {
+      "$comment": "Step-by-step reasoning for complex problems (--think flag)",
+      "args": [
+        "-l",
+        "-c",
+        "exec npx -y @modelcontextprotocol/server-sequential-thinking"
+      ],
+      "command": "/bin/bash"
+    }
+  }
+}

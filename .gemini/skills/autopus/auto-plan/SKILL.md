@@ -1,0 +1,188 @@
+---
+name: auto-plan
+version: "1.0.0"
+description: SPEC 문서 작성 — 코드베이스 분석 후 EARS 형식 요구사항과 기술 설계를 수행합니다
+platform: gemini-cli
+project: AutoTrading
+mode: full
+triggers:
+  - "plan"
+  - "spec"
+  - "기능 계획"
+---
+
+# auto-plan — SPEC 작성
+
+**프로젝트**: AutoTrading | **모드**: full
+
+## 설명
+
+단순 템플릿 생성이 아닌, 실제 코드베이스를 분석하고 컨텍스트를 수집한 후 SPEC 문서를 생성합니다.
+EARS 형식 요구사항과 기술 설계를 포함합니다.
+
+## 사용법
+
+```
+@auto-plan "기능 설명"
+@auto-plan "기능 설명" --skip-prd
+@auto-plan "기능 설명" --prd-mode minimal
+```
+
+### 플래그
+
+| Flag | Description |
+|------|-------------|
+| `--skip-prd` | PRD 생성 건너뛰고 바로 SPEC 작성. MEDIUM 난이도 권장. |
+| `--prd-mode <mode>` | PRD 모드: `standard` (10섹션, 기본값) 또는 `minimal` (5섹션). |
+
+## SPEC ID 형식
+
+`SPEC-{DOMAIN}-{NUMBER}`
+
+## 지원 EARS 타입
+
+- ubiquitous
+- event-driven
+- unwanted
+- optional
+- complex
+
+## 7단계 워크플로우
+
+### Step 1: 코드베이스 스캔
+
+대상 코드 영역을 분석합니다.
+
+- 관련 파일, 함수, 인터페이스 탐색
+- 기존 패턴, 의존성, 데이터 흐름 파악
+- 유사한 기존 구현(reference implementation) 탐색
+- 발견 내용 기록 (Step 4-7에서 참조)
+
+### Step 1.5: PRD 생성 (조건부)
+
+`--skip-prd`가 설정되지 않은 경우, SPEC 작성 전에 PRD를 생성합니다.
+
+- **Standard 모드** (11섹션): 새 기능, cross-team, 공개 API — `templates/shared/prd-standard.md.tmpl`
+  - Discovery Q&A 체크리스트, Job Stories/User Stories 듀얼 포맷, Pre-mortem 포함
+- **Minimal 모드** (6섹션): 소규모 변경, 내부 도구 — `templates/shared/prd-minimal.md.tmpl`
+  - Quick Discovery Check, Pre-mortem (Quick) 포함
+
+PRD는 `.autopus/specs/SPEC-{ID}/prd.md`에 저장되며, 이후 SPEC 작성 시 컨텍스트로 활용됩니다.
+
+`--skip-prd` 설정 시 이 단계를 건너뜁니다.
+
+### SPEC 문서 스캐폴딩
+
+`auto spec new` 명령어로 SPEC 디렉터리와 4개 파일을 자동 생성합니다.
+
+```bash
+auto spec new {DOMAIN}-{NUMBER} --title "기능 제목"
+```
+
+이 명령어는 `.autopus/specs/SPEC-{ID}/` 디렉터리에 spec.md, plan.md, acceptance.md, research.md 4개 파일을 생성합니다.
+이후 Steps에서 각 파일의 내용을 채웁니다.
+
+
+### Step 2: Lore 컨텍스트 확인
+
+```bash
+auto lore context <target-path>
+```
+
+확인 항목:
+- **Rejected 트레일러**: 거부된 접근 방식 → 재시도 금지
+- **Constraint 트레일러**: 활성 제약 조건 → 반드시 준수
+- **90일+ 의사결정**: 스탤 여부 검토
+
+### Step 3: 아키텍처 검증
+
+```bash
+auto arch enforce
+```
+
+확인 항목:
+- 대상 영역의 의존성 위반 여부
+- 새 기능이 준수해야 할 레이어 경계
+
+
+### Step 4: EARS 요구사항 작성
+
+Step 1에서 발견한 실제 코드 엔티티를 기반으로 요구사항을 작성합니다.
+
+**EARS 형식**:
+- `Ubiquitous`: `The system shall [action]` — 항상 적용
+- `Event-driven`: `WHEN [trigger] THEN the system shall [action]` — 트리거 기반
+- `State-driven`: `WHILE [state] the system shall [action]` — 상태 의존
+- `Unwanted`: `IF [condition] THEN the system shall [response]` — 실패 처리
+- `Optional`: `WHERE [feature] is enabled the system shall [action]` — 선택적
+
+### Step 5: 구현 계획 (plan.md)
+
+`.autopus/specs/SPEC-{ID}/plan.md` 생성:
+- 파일 영향 분석 (생성/수정/삭제)
+- 아키텍처 레이어 정렬
+- 위험도 평가 및 완화 방안
+- 의존성 목록
+
+### Step 6: 인수 기준 (acceptance.md)
+
+`.autopus/specs/SPEC-{ID}/acceptance.md` 생성:
+- Given-When-Then 시나리오 (실제 코드 동작 기반)
+- 엣지 케이스 및 에러 시나리오
+- 품질 게이트 기준
+
+### Step 7: 리서치 결과 저장 (research.md)
+
+`.autopus/specs/SPEC-{ID}/research.md` 생성:
+- Steps 1-3 발견 내용 전체
+- 세션 간 컨텍스트 유지를 위한 핵심 아티팩트
+
+## 출력 위치
+
+```
+.autopus/specs/SPEC-{DOMAIN}-{NUMBER}/
+├── prd.md          ← PRD 문서 (--skip-prd 시 생략)
+├── spec.md
+├── plan.md
+├── acceptance.md
+└── research.md
+```
+
+
+## Full 모드 추가 기능
+
+- 방법론: tdd
+- Lore 의사결정 연계 확인
+- 아키텍처 레이어 분석 포함
+- 테스트 계획 자동 생성
+
+
+## Branding Formats
+
+### Workflow Lifecycle (show after plan completes)
+
+```
+🐙 Workflow: {SPEC-ID}
+  ● plan  →  ○ go  →  ○ sync
+```
+
+Status symbols: `●` current stage, `✓` completed, `○` pending.
+
+### Agent Result Format (use for spec-writer subagent result)
+
+```
+🐙 spec-writer ──────────────────────
+  SPEC: {SPEC-ID} | 파일: 4개 | 요구사항: {N}개
+  다음: /auto go {SPEC-ID}
+```
+
+### Next Step Auto-Detection (show after completion)
+
+```
+다음 단계: {recommendation}
+```
+
+Detection order:
+1. No project docs → `📁 프로젝트 컨텍스트가 없습니다. /auto setup 을 실행하세요.`
+2. SPEC status `draft` → recommend `/auto spec review {SPEC-ID}` or `/auto go {SPEC-ID}`
+3. SPEC status `approved` → `✓ SPEC {SPEC-ID} 승인됨 → /auto go {SPEC-ID}`

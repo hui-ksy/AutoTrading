@@ -1,0 +1,99 @@
+---
+name: auto-idea
+version: "1.0.0"
+description: 아이디어 브레인스토밍 — 멀티 프로바이더 오케스트라로 아이디어를 발산하고 ICE 스코어링으로 평가합니다
+platform: gemini-cli
+project: AutoTrading
+mode: full
+triggers:
+  - "idea"
+  - "brainstorm"
+  - "아이디어"
+---
+
+# auto-idea — 아이디어 브레인스토밍
+
+**프로젝트**: AutoTrading | **모드**: full
+
+## 설명
+
+멀티 프로바이더 오케스트라를 활용해 아이디어를 구조화하고 발산 후 BS 파일로 저장합니다.
+ICE 스코어링으로 아이디어를 평가하고 상위 N개를 선별합니다.
+Opportunity-Solution Tree, 다관점 브레인스토밍, 가정 식별을 포함합니다.
+
+## 사용법
+
+```
+@auto-idea "아이디어 설명"
+@auto-idea "아이디어 설명" --strategy consensus
+@auto-idea "아이디어 설명" --auto
+```
+
+## 플래그
+
+| Flag | Description |
+|------|-------------|
+| `--strategy` | 오케스트레이션 전략: debate (기본), consensus, pipeline, fastest |
+| `--providers` | 사용할 프로바이더 목록 (기본: 전체) |
+| `--auto` | 완료 후 `/auto plan --from-idea BS-{ID}` 자동 체이닝 |
+
+## 5단계 파이프라인
+
+### Step 1: 입력 파싱
+
+입력에서 아이디어 설명과 플래그를 추출합니다.
+
+### Step 2: What/Why/Who/When 구조화
+
+- **What**: 무엇을 만드는가?
+- **Why**: 왜 필요한가? (문제/기회)
+- **Who**: 누구를 위한 것인가?
+- **When**: 언제 필요한가? (타임라인/맥락)
+
+**Opportunity-Solution Tree** (기존 제품 개선 시):
+- Outcome → Opportunity → Solution → Experiment 구조로 정리
+
+**Assumption Identification** (4축):
+- Value / Usability / Feasibility / Viability
+
+### Step 3: Orchestra 브레인스토밍 (다관점)
+
+PM/Designer/Engineer 3가지 관점에서 다각적 발산을 유도합니다.
+
+**서브프로세스 모드 (권장 — 모든 터미널에서 작동)**:
+```bash
+auto orchestra run "{structured idea}" --strategy {strategy} --rounds standard
+```
+
+**Pane 모드 (cmux/tmux 필요)**:
+```bash
+auto orchestra brainstorm "{structured idea}" --strategy {strategy}
+```
+
+서브프로세스 모드는 JSON 스키마 기반 구조화 출력으로 더 정확한 결과를 제공합니다.
+프로바이더 실패 시 나머지 결과로 계속 진행합니다.
+
+### Step 4: ICE 스코어링 + Assumption Risk Overlay
+
+| 항목 | 설명 | 범위 |
+|------|------|------|
+| Impact | 영향력 | 1-10 |
+| Confidence | 확신도 | 1-10 |
+| Ease | 실행 용이성 | 1-10 |
+
+`Score = (Impact × Confidence × Ease) / 100`
+
+ICE Top N 아이디어에 핵심 가정의 위험도를 오버레이합니다.
+
+### Step 5: BS 파일 저장
+
+`.autopus/brainstorms/BS-{ID}.md`에 결과를 저장합니다.
+
+## 출력
+
+```
+🐙 Workflow: BS-{ID}
+  ● idea  →  ○ plan  →  ○ go  →  ○ sync
+```
+
+`--auto` 설정 시 자동으로 `/auto plan --from-idea BS-{ID}`로 체이닝합니다.

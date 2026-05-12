@@ -1,0 +1,81 @@
+---
+name: auto-sync
+version: "1.0.0"
+description: 문서 동기화 — 구현 완료 후 SPEC, API 문서, 아키텍처를 동기화합니다
+platform: gemini-cli
+project: AutoTrading
+mode: full
+triggers:
+  - "sync"
+  - "동기화"
+  - "문서"
+---
+
+# auto-sync — 문서 동기화
+
+**프로젝트**: AutoTrading | **모드**: full
+
+## 설명
+
+구현 완료 후 코드와 문서를 동기화합니다.
+
+## 사용법
+
+```
+@auto-sync SPEC-ID
+@auto-sync
+```
+
+## 동기화 대상
+
+1. SPEC 상태 업데이트
+2. API 문서 갱신
+3. 아키텍처 다이어그램
+4. Lore 의사결정 기록
+5. CHANGELOG 갱신
+6. Lore 형식 자동 커밋
+
+## LSP 품질 게이트
+
+- 에러: 0 / 경고: 최대 10 / Clean LSP 필요
+
+## Lore 커밋
+
+동기화 완료 후 변경 파일을 Lore 형식으로 자동 커밋합니다.
+- SPEC-ID가 있으면: `docs(<scope>): sync SPEC-{ID} 문서 및 상태 갱신`
+- SPEC-ID가 없으면: `docs(sync): 프로젝트 문서 동기화`
+- 구현 코드 포함 시 SPEC 주요 타입(feat, fix 등) 사용
+- 변경 사항 없으면 커밋 생략
+
+
+## Branding Formats
+
+### Workflow Lifecycle (show after sync completes)
+
+```
+🐙 Workflow: {SPEC-ID}
+  ✓ plan  →  ✓ go  →  ● sync
+```
+
+### Milestone Celebration (show when full pipeline completes)
+
+```
+╭────────────────────────────────────╮
+│ 🐙 파이프라인 완료!                 │
+│ {SPEC-ID}: {title}                 │
+│ 태스크: N/N | 커버리지: N%          │
+│ 리뷰: {verdict}                    │
+╰────────────────────────────────────╯
+```
+
+Field mappings: `{title}` from spec.md, `N/N` = completed/total tasks, `{verdict}` = `APPROVE` or `N/A`.
+
+### Next Step Auto-Detection (show after sync completes)
+
+```
+다음 단계: {recommendation}
+```
+
+Detection order:
+1. SPEC status `completed` → `🐙 {SPEC-ID} 완료. 다음 기능: /auto plan "기능 설명"`
+2. Other pending SPECs exist → recommend next SPEC to implement

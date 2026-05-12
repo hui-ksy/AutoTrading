@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew backtest:*)",
+      "Bash(./gradlew compileJava)"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "context7",
+    "sequential-thinking"
+  ]
+}

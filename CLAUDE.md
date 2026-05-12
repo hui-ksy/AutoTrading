@@ -47,7 +47,7 @@ src/main/java/main/
 
 ## 현재 활성 전략: BollingerBandReversionStrategy ★ (알트코인 15m)
 
-- **심볼**: PEPEUSDT / DOGEUSDT / SOLUSDT (멀티페어, XRP·LTC 제외)
+- **심볼**: PEPEUSDT / SOLUSDT / AVAXUSDT / BNBUSDT (멀티페어, DOGE 제외)
 - **진입**: BB(17, 2.6σ) 이탈 + RSI 극단 (Long: RSI<30, Short: RSI>70)
 - **청산**: SL/TP = ATR 배수 기반, 포지션 보유 중 전략은 HOLD 반환
 - **레버리지**: 10x, **타임프레임**: 15m
@@ -70,14 +70,17 @@ src/main/java/main/
 
 **멀티페어 장기 스윕 (BB17/2.6 고정, 15m, 10x, 90일)**
 - 대상: DOGE / PEPE / SOL / LTC
-- 파라미터 범위: rsiOS=[25,30,35] × rsiOB=[65,70] × SL=[2.0~4.0] × TP=[3.5~7.0]
-- LTC: 수익 조합 2개뿐 (max +11%) → 제외 결정
+- LTC: 수익 조합 2개뿐 (max +11%) → 제외, DOGE: 성과 부진 → 제외
 
-| 심볼 | 채택 파라미터 | 비고 |
-|------|-------------|------|
-| PEPEUSDT | bbP=17, bbSD=2.6, rsiOS=30, rsiOB=70, SL=3.5, TP=5.0 | 공격형 |
-| DOGEUSDT | bbP=17, bbSD=2.6, rsiOS=30, rsiOB=70, SL=2.0, TP=7.0 | |
-| SOLUSDT  | bbP=17, bbSD=2.6, rsiOS=30, rsiOB=70, SL=4.0, TP=7.0 | |
+**멀티페어 후보 스윕 (BB17/2.6 고정, 15m, 10x, 30.6일) — XRP/BNB/AVAX/LINK/SUI/WIF/PEPE/SOL**
+- XRP·WIF·LINK: 플러스 조합 거의 없음 → 탈락
+
+| 심볼 | 채택 파라미터 | 수익% | 승률 | MDD |
+|------|-------------|-------|------|-----|
+| PEPEUSDT | bbP=17, bbSD=2.6, rsiOS=35, rsiOB=65, SL=3.5, TP=4.0 | +363% | 63% | 44.7% |
+| SOLUSDT  | bbP=17, bbSD=2.6, rsiOS=30, rsiOB=70, SL=4.0, TP=7.0 | +239% | 60% | 53.1% |
+| AVAXUSDT | bbP=17, bbSD=2.6, rsiOS=25, rsiOB=65, SL=4.0, TP=6.0 | +702% | 75% | 21.8% ★ |
+| BNBUSDT  | bbP=17, bbSD=2.6, rsiOS=35, rsiOB=65, SL=4.0, TP=5.0 | +116% | 64% | 31.3% |
 
 ---
 
@@ -89,7 +92,7 @@ trading {
   strategy = "BOLLINGER_BAND_REVERSION"
   timeframe = "15m"
   pair = "PEPEUSDT"
-  pairs = ["DOGEUSDT", "PEPEUSDT", "SOLUSDT"]
+  pairs = ["PEPEUSDT", "SOLUSDT", "AVAXUSDT", "BNBUSDT"]
   futures.leverage = 10
   candleIntervalSeconds = 15
 }
@@ -101,9 +104,10 @@ risk {
 }
 bollingerBands { period = 17, stdDev = 2.6, rsiPeriod = 14, rsiOversold = 30, rsiOverbought = 70 }
 symbols {
-  DOGEUSDT { bbPeriod = 17, bbStdDev = 2.6, rsiOversold = 30, rsiOverbought = 70, slMult = 2.0, tpMult = 7.0 }
-  PEPEUSDT { bbPeriod = 17, bbStdDev = 2.6, rsiOversold = 30, rsiOverbought = 70, slMult = 3.5, tpMult = 5.0 }
-  SOLUSDT  { bbPeriod = 17, bbStdDev = 2.6, rsiOversold = 30, rsiOverbought = 70, slMult = 4.0, tpMult = 7.0 }
+  PEPEUSDT  { bbPeriod = 17, bbStdDev = 2.6, rsiOversold = 35, rsiOverbought = 65, slMult = 3.5, tpMult = 4.0 }
+  SOLUSDT   { bbPeriod = 17, bbStdDev = 2.6, rsiOversold = 30, rsiOverbought = 70, slMult = 4.0, tpMult = 7.0 }
+  AVAXUSDT  { bbPeriod = 17, bbStdDev = 2.6, rsiOversold = 25, rsiOverbought = 65, slMult = 4.0, tpMult = 6.0 }
+  BNBUSDT   { bbPeriod = 17, bbStdDev = 2.6, rsiOversold = 35, rsiOverbought = 65, slMult = 4.0, tpMult = 5.0 }
 }
 ```
 

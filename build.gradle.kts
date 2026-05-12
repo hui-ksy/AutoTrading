@@ -41,10 +41,10 @@ dependencies {
     implementation("org.apache.commons:commons-math3:3.6.1")
 
     // Lombok (보일러플레이트 코드 감소)
-    compileOnly("org.projectlombok:lombok:1.18.30")
-    annotationProcessor("org.projectlombok:lombok:1.18.30")
-    testCompileOnly("org.projectlombok:lombok:1.18.30")
-    testAnnotationProcessor("org.projectlombok:lombok:1.18.30")
+    compileOnly("org.projectlombok:lombok:1.18.46")
+    annotationProcessor("org.projectlombok:lombok:1.18.46")
+    testCompileOnly("org.projectlombok:lombok:1.18.46")
+    testAnnotationProcessor("org.projectlombok:lombok:1.18.46")
 
     // 설정 파일 처리
     implementation("com.typesafe:config:1.4.3")

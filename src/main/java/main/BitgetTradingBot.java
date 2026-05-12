@@ -500,7 +500,7 @@ public class BitgetTradingBot {
                     }
                     pnlPercent *= config.getLeverage();
 
-                    currentPriceStr = String.format("%.4f", currentPrice);
+                    currentPriceStr = formatPrice(currentPrice);
                     pnlStr = String.format("%.2f%%", pnlPercent);
                 } else {
                     currentPriceStr = "조회 실패";
@@ -510,7 +510,7 @@ public class BitgetTradingBot {
                 String logMsg = String.format("[%s] %s | 진입가: %s | 현재가: %s | 미실현 손익: %s",
                         position.getSymbol(),
                         position.getSide(),
-                        String.format("%.4f", position.getEntryPrice()),
+                        formatPrice(position.getEntryPrice()),
                         currentPriceStr,
                         pnlStr);
 
@@ -523,7 +523,7 @@ public class BitgetTradingBot {
                                     "진입: $%s ➡️ 현재: $%s\n" +
                                     "%s <b>%s</b>",
                             sideEmoji, position.getSymbol(), position.getSide(),
-                            String.format("%.4f", position.getEntryPrice()), currentPriceStr,
+                            formatPrice(position.getEntryPrice()), currentPriceStr,
                             pnlEmoji, pnlStr);
                     telegramSummaries.add(telegramMsg);
                 }
@@ -544,6 +544,15 @@ public class BitgetTradingBot {
             }
 
         }, 5, 5, TimeUnit.MINUTES);
+    }
+
+    private static String formatPrice(double price) {
+        if (price == 0) return "0.00";
+        double abs = Math.abs(price);
+        if (abs < 0.0001) return String.format("%.8f", price);
+        if (abs < 0.01)   return String.format("%.6f", price);
+        if (abs < 1.0)    return String.format("%.4f", price);
+        return String.format("%,.4f", price);
     }
 
     private static String getStatusSummary() {
@@ -569,11 +578,11 @@ public class BitgetTradingBot {
                                     "진입: $%s ➡️ 현재: $%s\n" +
                                     "%s <b>%.2f%%</b>",
                             sideEmoji, position.getSymbol(), position.getSide(),
-                            String.format("%.4f", entryPrice), String.format("%.4f", currentPrice),
+                            formatPrice(entryPrice), formatPrice(currentPrice),
                             pnlEmoji, pnlPercent));
                 } else {
                     summaries.add(String.format("⚪️ <b>%s</b> %s\n진입: $%s ➡️ 현재: 조회 실패",
-                            position.getSymbol(), position.getSide(), String.format("%.4f", position.getEntryPrice())));
+                            position.getSymbol(), position.getSide(), formatPrice(position.getEntryPrice())));
                 }
             }
         }

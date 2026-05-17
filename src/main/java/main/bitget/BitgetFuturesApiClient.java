@@ -411,32 +411,44 @@ public class BitgetFuturesApiClient implements MarketDataClient, TradeClient {
         try {
             String endpoint = "/api/v2/mix/position/history-position";
             String queryString = "?symbol=" + symbol + "&productType=" + productType + "&limit=1";
-            
+
             JsonObject response = get(endpoint, queryString);
-            
+
             if (response != null && "00000".equals(response.get("code").getAsString())) {
                 JsonObject data = response.getAsJsonObject("data");
                 if (data != null && data.has("list")) {
                     JsonArray list = data.getAsJsonArray("list");
                     if (list.size() > 0) {
                         JsonObject posData = list.get(0).getAsJsonObject();
+                        log.info("[{}] 포지션 히스토리 원본: {}", symbol, posData);
                         Trade trade = new Trade();
-                        
-                        // [수정] 필드명 변경 및 파싱
-                        if (posData.has("openPriceAvg") && !posData.get("openPriceAvg").isJsonNull()) {
-                            trade.setEntryPrice(posData.get("openPriceAvg").getAsDouble());
+
+                        for (String f : new String[]{"openPriceAvg", "openAvgPrice", "openPrice"}) {
+                            if (posData.has(f) && !posData.get(f).isJsonNull()) {
+                                double v = posData.get(f).getAsDouble();
+                                if (v > 0) { trade.setEntryPrice(v); break; }
+                            }
                         }
-                        if (posData.has("closePriceAvg") && !posData.get("closePriceAvg").isJsonNull()) {
-                            trade.setExitPrice(posData.get("closePriceAvg").getAsDouble());
+                        double exitPrice = 0;
+                        for (String f : new String[]{"closePriceAvg", "closeAvgPrice", "closePrice", "avgClosePrice"}) {
+                            if (posData.has(f) && !posData.get(f).isJsonNull()) {
+                                double v = posData.get(f).getAsDouble();
+                                if (v > 0) { exitPrice = v; break; }
+                            }
                         }
+                        if (exitPrice == 0) {
+                            log.warn("[{}] 청산가 파싱 실패(0) — 히스토리 응답에서 closePriceAvg 계열 필드를 찾지 못했습니다.", symbol);
+                        }
+                        trade.setExitPrice(exitPrice);
+
                         if (posData.has("netProfit") && !posData.get("netProfit").isJsonNull()) {
                             trade.setProfit(posData.get("netProfit").getAsDouble());
                         }
-                        
+
                         double openFee = posData.has("openFee") ? Math.abs(posData.get("openFee").getAsDouble()) : 0.0;
                         double closeFee = posData.has("closeFee") ? Math.abs(posData.get("closeFee").getAsDouble()) : 0.0;
                         trade.setFee(openFee + closeFee);
-                        
+
                         return trade;
                     }
                 }
@@ -569,12 +581,20 @@ public class BitgetFuturesApiClient implements MarketDataClient, TradeClient {
         if (posData != null && posData.has("total") && !posData.get("total").isJsonNull() && posData.get("total").getAsDouble() > 0 &&
             posData.has("openPriceAvg") && !posData.get("openPriceAvg").isJsonNull() &&
             posData.has("holdSide") && !posData.get("holdSide").isJsonNull()) {
-            
+
             Position position = new Position();
             position.setSymbol(posData.get("symbol").getAsString());
             position.setQuantity(posData.get("total").getAsDouble());
             position.setEntryPrice(posData.get("openPriceAvg").getAsDouble());
             position.setSide("long".equals(posData.get("holdSide").getAsString()) ? "BUY" : "SHORT");
+            for (String f : new String[]{"openTime", "cTime"}) {
+                if (posData.has(f) && !posData.get(f).isJsonNull()) {
+                    try {
+                        long ts = posData.get(f).getAsLong();
+                        if (ts > 0) { position.setEntryTimestamp(ts); break; }
+                    } catch (Exception ignored) {}
+                }
+            }
             return position;
         }
         return null;

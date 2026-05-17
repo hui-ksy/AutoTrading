@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(./gradlew backtest:*)",
-      "Bash(./gradlew compileJava)"
+      "Bash(./gradlew compileJava)",
+      "Bash(./gradlew build *)"
     ]
   },
   "enabledMcpjsonServers": [

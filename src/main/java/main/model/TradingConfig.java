@@ -94,6 +94,9 @@ public class TradingConfig {
     private long tickerIntervalSeconds;
     private long positionStatusMinutes;
 
+    // 최대 포지션 보유 시간 (시간 단위, 0=비활성화)
+    private int maxHoldHours;
+
     private java.util.concurrent.ConcurrentHashMap<String, SymbolConfig> symbolConfigs = new java.util.concurrent.ConcurrentHashMap<>();
 
     private TradingConfig() {}
@@ -189,6 +192,7 @@ public class TradingConfig {
         tc.setCandleIntervalSeconds(config.hasPath("trading.candleIntervalSeconds") ? config.getLong("trading.candleIntervalSeconds") : 5);
         tc.setTickerIntervalSeconds(config.hasPath("trading.tickerIntervalSeconds") ? config.getLong("trading.tickerIntervalSeconds") : 1);
         tc.setPositionStatusMinutes(config.getLong("trading.positionStatusMinutes"));
+        tc.setMaxHoldHours(config.hasPath("trading.maxHoldHours") ? config.getInt("trading.maxHoldHours") : 12);
 
         // 심볼별 설정 로드 (실행 주기 설정 이후에 파싱해야 fallback 값이 올바름)
         if (config.hasPath("symbols")) {

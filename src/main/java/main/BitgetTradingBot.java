@@ -358,7 +358,10 @@ public class BitgetTradingBot {
         int losses = totalTrades - wins;
         double winRate = (totalTrades > 0) ? (double) wins / totalTrades * 100 : 0;
 
-        double currentBalance = initialBalance + totalProfit;
+        // LIVE 모드에서는 펀딩비 등 비거래 비용 반영을 위해 거래소 실제 잔고 사용
+        double currentBalance = (config.getMode() == TradingMode.LIVE && sharedTotalEquity > 0)
+                ? sharedTotalEquity
+                : initialBalance + totalProfit;
         double totalReturnPercent = (initialBalance > 0) ? (currentBalance / initialBalance - 1) * 100 : 0;
 
         return new CumulativeStats(totalTrades, wins, losses, winRate, totalProfit, totalReturnPercent, currentBalance);

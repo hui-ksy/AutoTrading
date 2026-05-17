@@ -134,6 +134,16 @@ public class AutoTrader {
         try {
             double currentPrice = getCurrentPrice();
             if (currentPrice > 0) {
+                int maxHoldHours = config.getMaxHoldHours();
+                if (maxHoldHours > 0 && currentPosition.getEntryTimestamp() > 0) {
+                    long holdMs = System.currentTimeMillis() - currentPosition.getEntryTimestamp();
+                    if (holdMs > (long) maxHoldHours * 3_600_000L) {
+                        log.warn("[{}] 최대 보유 시간({}h) 초과 — 포지션 강제 청산", pair, maxHoldHours);
+                        telegram.notifyError(String.format("⏰ [%s] 최대 보유 %dh 초과 — 자동 청산", pair, maxHoldHours));
+                        executeExitPosition("최대 보유 시간 초과", currentPrice);
+                        return;
+                    }
+                }
                 managePosition(currentPrice);
             }
         } catch (Exception e) {
@@ -231,6 +241,10 @@ public class AutoTrader {
             if (existingPosition != null) {
                 log.info("[{}] 기존 {} 포지션 발견! 관리를 시작합니다.", pair, existingPosition.getSide());
                 this.currentPosition = existingPosition;
+                if (this.currentPosition.getEntryTimestamp() == 0) {
+                    this.currentPosition.setEntryTimestamp(System.currentTimeMillis());
+                    log.info("[{}] 포지션 진입 시간 미확인 — 현재 시간으로 초기화 (maxHoldHours 카운트 시작)", pair);
+                }
                 
                 double marginUsed = (this.currentPosition.getEntryPrice() * this.currentPosition.getQuantity()) / config.getLeverage();
                 log.info("[{}] 인수 증거금: ${}", pair, String.format("%.2f", marginUsed));
@@ -416,28 +430,32 @@ public class AutoTrader {
         } else {
             if (apiClient instanceof BitgetFuturesApiClient) {
                 BitgetFuturesApiClient futuresClient = (BitgetFuturesApiClient) apiClient;
-                
+
                 OrderResult closeResult = futuresClient.closeEntirePosition(pair);
                 if (closeResult != null && "filled".equals(closeResult.getStatus())) {
                     log.info("[{}] 포지션 전체 청산 완료", pair);
                 } else {
                     log.error("[{}] 포지션 전체 청산 실패!", pair);
                 }
-                
+
                 futuresClient.cancelAllPlanOrders(pair);
             }
-            
-            // [수정] API에서 실제 손익 조회 후 처리 (실패 시 현재가 사용)
+
+            // 히스토리 API 반영 대기
+            try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
+
             Trade closedTrade = ((BitgetFuturesApiClient) apiClient).getLatestClosedPosition(pair);
             if (closedTrade != null) {
-                tradeHandler.handle(currentPosition, closedTrade.getExitPrice(), closedTrade.getProfit(), closedTrade.getFee());
+                double resolvedExitPrice = closedTrade.getExitPrice() > 0
+                        ? closedTrade.getExitPrice()
+                        : apiClient.getTickerPrice(pair);
+                if (resolvedExitPrice <= 0) resolvedExitPrice = exitPrice;
+                tradeHandler.handle(currentPosition, resolvedExitPrice, closedTrade.getProfit(), closedTrade.getFee());
             } else {
-                // API 조회 실패 시 현재가로 대체
-                double currentPrice = (apiClient != null) ? apiClient.getTickerPrice(pair) : exitPrice;
-                if (currentPrice <= 0) currentPrice = exitPrice; // 현재가 조회도 실패하면 인자로 받은 exitPrice 사용
-                
+                double currentPrice = apiClient.getTickerPrice(pair);
+                if (currentPrice <= 0) currentPrice = exitPrice;
                 log.warn("[{}] 포지션 종료 내역 조회 실패. 현재가({})로 손익을 추정합니다.", pair, currentPrice);
-                tradeHandler.handle(currentPosition, currentPrice, 0, 0); // PnL은 0으로 넘겨서 직접 계산하게 함
+                tradeHandler.handle(currentPosition, currentPrice, 0, 0);
             }
             currentPosition = null;
         }
@@ -456,11 +474,13 @@ public class AutoTrader {
 
         Trade closedTrade = ((BitgetFuturesApiClient) apiClient).getLatestClosedPosition(pair);
         if (closedTrade != null) {
-            log.info("[{}] 외부 청산 거래 내역: ExitPrice={}, PnL={}", pair, closedTrade.getExitPrice(), closedTrade.getProfit());
-            tradeHandler.handle(currentPosition, closedTrade.getExitPrice(), closedTrade.getProfit(), closedTrade.getFee());
+            double resolvedExitPrice = closedTrade.getExitPrice() > 0
+                    ? closedTrade.getExitPrice()
+                    : apiClient.getTickerPrice(pair);
+            log.info("[{}] 외부 청산 거래 내역: ExitPrice={}, PnL={}", pair, resolvedExitPrice, closedTrade.getProfit());
+            tradeHandler.handle(currentPosition, resolvedExitPrice, closedTrade.getProfit(), closedTrade.getFee());
         } else {
-            // [수정] API 조회 실패 시 현재가로 대체
-            double currentPrice = (apiClient != null) ? apiClient.getTickerPrice(pair) : 0.0;
+            double currentPrice = apiClient.getTickerPrice(pair);
             log.warn("[{}] 최근 거래 내역 조회 실패. 현재가({})로 손익을 추정합니다.", pair, currentPrice);
             tradeHandler.handle(currentPosition, currentPrice, 0, 0);
         }

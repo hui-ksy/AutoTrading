@@ -47,69 +47,19 @@ src/main/java/main/
 
 ## 현재 활성 전략: BollingerBandReversionStrategy ★ (알트코인 15m)
 
-- **심볼**: PEPEUSDT / SOLUSDT / AVAXUSDT / BNBUSDT (멀티페어, DOGE 제외)
-- **진입**: BB(17, 2.6σ) 이탈 + RSI 극단 (Long: RSI<30, Short: RSI>70)
-- **청산**: SL/TP = ATR 배수 기반, 포지션 보유 중 전략은 HOLD 반환
+- **심볼**: PEPEUSDT / SOLUSDT / AVAXUSDT / BNBUSDT (멀티페어)
+- **진입**: BB(17, 2.6σ) 이탈 + RSI 극단
+- **청산**: SL/TP = ATR 배수 기반 (코인별 상이), 포지션 보유 중 HOLD 반환
 - **레버리지**: 10x, **타임프레임**: 15m
 
-### 백테스트 결과
+### 채택 파라미터 (멀티페어 스윕 기반, DailyOptimizer가 매일 갱신)
 
-**PEPE 정밀 스윕 (4536 combos, 15m, 10x, 30.6일)**
-
-| 후보 | 수익률 | 승률 | 건/일 | MDD | 파라미터 |
-|------|--------|------|-------|-----|---------|
-| 공격형 ★ (현재) | **+172.49%** | 72.4% | 0.95 | 25.45% | bbP=17, bbSD=2.6, rsiOS=30, rsiOB=70, SL=1.5, TP=2.0 |
-| 보수형 | **+101.80%** | 75.0% | 0.52 | 13.41% | bbP=17, bbSD=2.7, rsiOS=25, rsiOB=70, SL=1.2, TP=2.0 |
-
-**멀티페어 1차 스윕 (486 combos, 15m, 10x, ~31일)**
-
-| 심볼 | 수익률 | 승률 | 건/일 | 파라미터 |
-|------|--------|------|-------|---------|
-| PEPEUSDT | +52.17% | 56.7% | 0.98 | bbP=15, bbSD=2.5, rsiOS=30, rsiOB=70, SL=1.5, TP=2.5 |
-| DOGEUSDT | +26.99% | 42.9% | 0.46 | bbP=10, bbSD=2.5, rsiOS=20, rsiOB=70, SL=1.0, TP=3.0 |
-
-**멀티페어 장기 스윕 (BB17/2.6 고정, 15m, 10x, 90일)**
-- 대상: DOGE / PEPE / SOL / LTC
-- LTC: 수익 조합 2개뿐 (max +11%) → 제외, DOGE: 성과 부진 → 제외
-
-**멀티페어 후보 스윕 (BB17/2.6 고정, 15m, 10x, 30.6일) — XRP/BNB/AVAX/LINK/SUI/WIF/PEPE/SOL**
-- XRP·WIF·LINK: 플러스 조합 거의 없음 → 탈락
-
-| 심볼 | 채택 파라미터 | 수익% | 승률 | MDD |
-|------|-------------|-------|------|-----|
-| PEPEUSDT | bbP=17, bbSD=2.6, rsiOS=35, rsiOB=65, SL=3.5, TP=4.0 | +363% | 63% | 44.7% |
-| SOLUSDT  | bbP=17, bbSD=2.6, rsiOS=30, rsiOB=70, SL=4.0, TP=7.0 | +239% | 60% | 53.1% |
-| AVAXUSDT | bbP=17, bbSD=2.6, rsiOS=25, rsiOB=65, SL=4.0, TP=6.0 | +702% | 75% | 21.8% ★ |
-| BNBUSDT  | bbP=17, bbSD=2.6, rsiOS=35, rsiOB=65, SL=4.0, TP=5.0 | +116% | 64% | 31.3% |
-
----
-
-## application.conf 현재 설정
-
-```hocon
-trading {
-  mode = "LIVE"   # ★ 실거래 모드
-  strategy = "BOLLINGER_BAND_REVERSION"
-  timeframe = "15m"
-  pair = "PEPEUSDT"
-  pairs = ["PEPEUSDT", "SOLUSDT", "AVAXUSDT", "BNBUSDT"]
-  futures.leverage = 10
-  candleIntervalSeconds = 15
-}
-risk {
-  orderSizingStrategy = "PERCENT_OF_EQUITY"
-  orderPercentOfBalance = 10.0   # 잔고의 10%씩 진입
-  atrSlMultiplier = 4.0
-  atrTpMultiplier = 6.0
-}
-bollingerBands { period = 17, stdDev = 2.6, rsiPeriod = 14, rsiOversold = 30, rsiOverbought = 70 }
-symbols {
-  PEPEUSDT  { bbPeriod = 17, bbStdDev = 2.6, rsiOversold = 35, rsiOverbought = 65, slMult = 3.5, tpMult = 4.0 }
-  SOLUSDT   { bbPeriod = 17, bbStdDev = 2.6, rsiOversold = 30, rsiOverbought = 70, slMult = 4.0, tpMult = 7.0 }
-  AVAXUSDT  { bbPeriod = 17, bbStdDev = 2.6, rsiOversold = 25, rsiOverbought = 65, slMult = 4.0, tpMult = 6.0 }
-  BNBUSDT   { bbPeriod = 17, bbStdDev = 2.6, rsiOversold = 35, rsiOverbought = 65, slMult = 4.0, tpMult = 5.0 }
-}
-```
+| 심볼 | rsiOS | rsiOB | SL× | TP× |
+|------|-------|-------|-----|-----|
+| PEPEUSDT | 35 | 65 | 3.5 | 4.0 |
+| SOLUSDT  | 30 | 70 | 4.0 | 7.0 |
+| AVAXUSDT | 25 | 65 | 4.0 | 6.0 |
+| BNBUSDT  | 35 | 65 | 4.0 | 5.0 |
 
 ---
 
@@ -148,38 +98,32 @@ symbols {
 
 ---
 
-## 코인별 개별 설정 (SymbolConfig) ✅
+## 코인별 개별 설정 (SymbolConfig)
 
-- `SymbolConfig.java`: 심볼별 BB/RSI/SL/TP/candleInterval/tickerInterval 컨테이너, `defaults(symbol)` 팩토리
+- `SymbolConfig.java`: 심볼별 BB/RSI/SL/TP/candleInterval/tickerInterval 컨테이너
 - `TradingConfig`: `symbols` 블록 파싱 → `ConcurrentHashMap<String, SymbolConfig>`
-- `StrategyFactory`: `createStrategy(config, SymbolConfig sc)` 오버로드
 - `DailyOptimizer`: 코인별 스윕 → 각 SymbolConfig 업데이트 → `reloadStrategy()` 호출
 
 ---
 
-## LIVE 모드 SL/TP 버그 수정 ✅
+## 최대 포지션 보유 시간 (maxHoldHours)
 
-- **증상**: LIVE 모드에서 전략이 계산한 ATR 기반 SL/TP가 무시되고 항상 고정 0.15%/0.3%가 적용됨 → 짧은 SL로 급격한 연속 청산 발생
-- **원인**: `AutoTrader.confirmPositionEntered()`가 `setFixedTpSl()` 호출, `entrySignal`의 SL/TP를 미사용
-- **수정**:
-  - `confirmPositionEntered()`: `entrySignal.getStopLoss()` / `entrySignal.getTakeProfit()` 우선 사용, 없을 때만 고정값 폴백
-  - `checkAndLoadExistingPosition()`: 봇 재시작 시 `setAtrTpSl()` 호출 (캔들 fetch → ATR 계산 → SymbolConfig slMult/tpMult 적용)
+- **기본값**: 12시간 (`trading.maxHoldHours = 12`, 0=비활성화)
+- **동작**: `AutoTrader.tickerLoop()`에서 `entryTimestamp` 초과 시 자동 청산 + 텔레그램 알림
+
+---
+
+## 작업 마무리 규칙
+
+- 작업 완료 후 CLAUDE.md 정리를 지시받으면, 수정 완료 즉시 모든 변경사항을 커밋하고 푸시할 것
+- 커밋 메시지는 Lore 형식 사용 (lore-commit 규칙 참조)
 
 ---
 
 ## TODO
 
-- [x] PEPE 정밀 스윕 (4536 combos) → 공격형 파라미터 적용
-- [x] 일일 파라미터 자동 최적화 (DailyOptimizer) — 코인별 스윕 + 30분 타임아웃
-- [x] PAPER 모드 SL/TP 버그 수정
-- [x] LIVE 모드 SL/TP 버그 수정 — `confirmPositionEntered()` ATR 기반 신호값 우선 사용
-- [x] 방향성 필터 (DirectionChecker, `/direction on/off`)
-- [x] 코인별 개별 설정 전체 완료 (SymbolConfig + application.conf symbols 블록)
-- [x] 멀티페어 장기 스윕 (90일) → DOGE/PEPE/SOL 파라미터 확정, LTC 제외
-- [x] PEPE/DOGE 가격 표시 소수점 버그 수정 (formatPrice, fmt 헬퍼)
-- [x] LIVE 모드 전환, 잔고 10% 진입
-- [x] `/percent [N]` 명령어 추가 — 진입 비율 동적 변경 (인메모리 + conf)
-- [ ] 실거래 결과 모니터링 후 orderPercentOfBalance 조정 (현재 10%)
+- [ ] 실거래 결과 모니터링 후 orderPercentOfBalance 조정 (현재 25%)
+- [ ] 하락장 대응: BollingerBandReversionStrategy에 EMA 추세 필터 추가 검토 (Long 진입 시 EMA200 위, Short 진입 시 EMA200 아래)
 
 ---
 

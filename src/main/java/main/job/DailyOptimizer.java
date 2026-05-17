@@ -247,7 +247,13 @@ public class DailyOptimizer {
             String newLine = String.format(
                 "  %s { bbPeriod = 17, bbStdDev = 2.6, rsiOversold = %d, rsiOverbought = %d, slMult = %.1f, tpMult = %.1f }",
                 symbol, p.rsiOS(), p.rsiOB(), p.slMult(), p.tpMult());
-            content = content.replaceAll("  " + symbol + " \\{[^}]+\\}", newLine);
+            String before = content;
+            content = content.replaceAll("  " + symbol + "\\s+\\{[^}]+\\}", newLine);
+            if (content.equals(before)) {
+                log.warn("application.conf {} 라인 업데이트 실패: 패턴 매칭 오류 (심볼 라인을 찾지 못했습니다)", symbol);
+                telegram.sendRawMessage("⚠️ " + symbol + " conf 저장 실패: 패턴 매칭 오류 — 수동 확인 필요");
+                return;
+            }
             Files.writeString(path, content, StandardCharsets.UTF_8);
             log.info("application.conf {} 라인 업데이트 완료", symbol);
         } catch (IOException e) {

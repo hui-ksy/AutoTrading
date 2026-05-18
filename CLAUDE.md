@@ -123,7 +123,25 @@ src/main/java/main/
 ## TODO
 
 - [ ] 실거래 결과 모니터링 후 orderPercentOfBalance 조정 (현재 25%)
-- [ ] 하락장 대응: BollingerBandReversionStrategy에 EMA 추세 필터 추가 검토 (Long 진입 시 EMA200 위, Short 진입 시 EMA200 아래)
+- [ ] **[다음 탐구]** 새로운 전략 알고리즘 백테스트 탐색 (아래 완료된 실험 참고)
+
+---
+
+## 완료된 실험 기록
+
+### EMA200 추세 필터 (2026-05-18) — **미채택**
+
+`BollingerBandReversionStrategy`에 `trendFilterEma` 파라미터 추가 (0=비활성, 하위 호환).
+`BacktestRunner.runTrendFilterComparison()`으로 필터 ON/OFF 28.8일 비교.
+
+| 심볼 | OFF 최고수익% | ON 최고수익% | 플러스 OFF/ON | 결론 |
+|------|-------------|------------|--------------|------|
+| PEPEUSDT | **888%** | 123% (3건) | 58/15 | OFF 압승 |
+| SOLUSDT  | 63% | **86%** | 13/30 | ON 유리 |
+| AVAXUSDT | **812%** | 37% | 118/45 | OFF 압승 |
+| BNBUSDT  | 61% | 41% | 42/68 | ON 안정적(MDD 4% vs 31%) |
+
+**판단**: BB+RSI 극단 진입 전략은 추세와 무관하게 작동하므로 EMA 필터가 전반적으로 수익을 낮춤. 실거래 미적용. `trendFilterEma = 0` 기본값 유지.
 
 ---
 

@@ -215,6 +215,7 @@ public class TradingConfig {
                 s.setTpMult(sc.hasPath("tpMult") ? sc.getDouble("tpMult") : tc.getAtrTpMultiplier());
                 s.setCandleIntervalSeconds(sc.hasPath("candleIntervalSeconds") ? sc.getLong("candleIntervalSeconds") : tc.getCandleIntervalSeconds());
                 s.setTickerIntervalSeconds(sc.hasPath("tickerIntervalSeconds") ? sc.getLong("tickerIntervalSeconds") : tc.getTickerIntervalSeconds());
+                s.setTrendFilterEma(sc.hasPath("trendFilterEma") ? sc.getInt("trendFilterEma") : 0);
                 tc.getSymbolConfigs().put(sym, s);
             }
         }

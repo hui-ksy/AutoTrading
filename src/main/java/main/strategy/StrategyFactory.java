@@ -14,7 +14,8 @@ public class StrategyFactory {
             return new BollingerBandReversionStrategy(
                 sc.getBbPeriod(), sc.getBbStdDev(),
                 sc.getRsiOversold(), sc.getRsiOverbought(),
-                sc.getSlMult(), sc.getTpMult());
+                sc.getSlMult(), sc.getTpMult(),
+                sc.getTrendFilterEma());
         }
         return createStrategy(config);
     }

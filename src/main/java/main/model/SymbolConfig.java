@@ -18,6 +18,7 @@ public class SymbolConfig {
     private double tpMult;
     private long candleIntervalSeconds;
     private long tickerIntervalSeconds;
+    private int trendFilterEma;
 
     public static SymbolConfig defaults(String symbol) {
         SymbolConfig sc = new SymbolConfig();
@@ -35,6 +36,7 @@ public class SymbolConfig {
         sc.tpMult                = 5.0;
         sc.candleIntervalSeconds = 15;
         sc.tickerIntervalSeconds = 1;
+        sc.trendFilterEma        = 0;
         return sc;
     }
 }

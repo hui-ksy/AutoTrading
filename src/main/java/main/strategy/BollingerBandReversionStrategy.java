@@ -32,6 +32,7 @@ public class BollingerBandReversionStrategy implements TradingStrategy {
     private final int    atrPeriod;
     private final double atrSlMult;
     private final double atrTpMult;
+    private final int    trendFilterEma;
 
     /** application.conf 기반 실거래/페이퍼 트레이딩용 생성자 */
     public BollingerBandReversionStrategy(TradingConfig config) {
@@ -45,22 +46,32 @@ public class BollingerBandReversionStrategy implements TradingStrategy {
         this.atrPeriod     = config.getAtrPeriod() > 0 ? config.getAtrPeriod() : 14;
         this.atrSlMult     = config.getAtrSlMultiplier() > 0 ? config.getAtrSlMultiplier() : 1.5;
         this.atrTpMult     = config.getAtrTpMultiplier() > 0 ? config.getAtrTpMultiplier() : 3.0;
+        this.trendFilterEma = 0;
     }
 
-    /** 파라미터 스윕용 생성자 */
+    /** 파라미터 스윕용 생성자 (trendFilterEma=0, 필터 비활성) */
     public BollingerBandReversionStrategy(int bbPeriod, double bbStdDev,
                                           double rsiOversold, double rsiOverbought,
                                           double atrSlMult, double atrTpMult) {
-        this.bbPeriod      = bbPeriod;
-        this.bbStdDev      = bbStdDev;
-        this.rsiPeriod     = 14;
-        this.rsiOversold   = rsiOversold;
-        this.rsiOverbought = rsiOverbought;
-        this.rsiExitLong   = 55.0;   // RSI 55 이상 → Long 청산 (중립 복귀)
-        this.rsiExitShort  = 45.0;   // RSI 45 이하 → Short 청산
-        this.atrPeriod     = 14;
-        this.atrSlMult     = atrSlMult;
-        this.atrTpMult     = atrTpMult;
+        this(bbPeriod, bbStdDev, rsiOversold, rsiOverbought, atrSlMult, atrTpMult, 0);
+    }
+
+    /** 파라미터 스윕용 생성자 (trendFilterEma 지정) */
+    public BollingerBandReversionStrategy(int bbPeriod, double bbStdDev,
+                                          double rsiOversold, double rsiOverbought,
+                                          double atrSlMult, double atrTpMult,
+                                          int trendFilterEma) {
+        this.bbPeriod       = bbPeriod;
+        this.bbStdDev       = bbStdDev;
+        this.rsiPeriod      = 14;
+        this.rsiOversold    = rsiOversold;
+        this.rsiOverbought  = rsiOverbought;
+        this.rsiExitLong    = 55.0;
+        this.rsiExitShort   = 45.0;
+        this.atrPeriod      = 14;
+        this.atrSlMult      = atrSlMult;
+        this.atrTpMult      = atrTpMult;
+        this.trendFilterEma = trendFilterEma;
     }
 
     private static String fmt(double v) {
@@ -95,8 +106,18 @@ public class BollingerBandReversionStrategy implements TradingStrategy {
                 rsi, fmt(close), fmt(bb.getLowerBand()), fmt(bb.getUpperBand())));
         }
 
+        // ── EMA 추세 필터 (trendFilterEma > 0 일 때만 활성) ─────────
+        double emaValue = 0;
+        if (trendFilterEma > 0) {
+            List<Double> emaList = TechnicalIndicators.calculateEMA(candles, trendFilterEma);
+            if (emaList.isEmpty()) return hold("EMA 계산 불가");
+            emaValue = emaList.get(emaList.size() - 1);
+        }
+
         // ── Long 진입: BB 하단 이탈 + RSI 과매도 ────────────────────
         if (close < bb.getLowerBand() && rsi < rsiOversold) {
+            if (trendFilterEma > 0 && close < emaValue)
+                return hold("EMA필터: Long 차단 (하락추세) | EMA" + trendFilterEma + "=" + fmt(emaValue));
             double sl = close - atr * atrSlMult;
             double tp = close + atr * atrTpMult;
             return Signal.builder()
@@ -111,6 +132,8 @@ public class BollingerBandReversionStrategy implements TradingStrategy {
 
         // ── Short 진입: BB 상단 이탈 + RSI 과매수 ───────────────────
         if (close > bb.getUpperBand() && rsi > rsiOverbought) {
+            if (trendFilterEma > 0 && close > emaValue)
+                return hold("EMA필터: Short 차단 (상승추세) | EMA" + trendFilterEma + "=" + fmt(emaValue));
             double sl = close + atr * atrSlMult;
             double tp = close - atr * atrTpMult;
             return Signal.builder()

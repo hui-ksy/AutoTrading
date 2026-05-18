@@ -38,7 +38,7 @@ public class BacktestRunner {
     private static final double FEE_PCT  = 0.06;     // 편도 수수료 %
 
     public static void main(String[] args) {
-        runMultiPairLongSweep();
+        runTrendFilterComparison();
     }
 
     // ── 최근 1일 체크 (오늘 거래가 없었던 게 맞는지 검증) ─────────────────
@@ -1853,6 +1853,103 @@ public class BacktestRunner {
             log.info("{}", line);
             long positive = results.stream().filter(r -> r.result.getTotalReturnPct() > 0).count();
             log.info("{}", String.format("플러스 수익: %d/%d  |  기간: %.1f일", positive, results.size(), totalDays));
+        }
+    }
+
+    // ── EMA 추세 필터 ON/OFF 비교 스윕 ────────────────────────────────────
+    public static void runTrendFilterComparison() {
+        final String   timeframe    = "15m";
+        final int      candleCnt    = 8_700;
+        final int      warmup       = 210;   // EMA200 웜업을 위해 더 큰 값
+        final int      leverage     = 10;
+        final int      bbPeriod     = 17;
+        final double   bbStdDev     = 2.6;
+        final int      trendEma     = 200;
+
+        int[]    rsiOversolds   = {25, 30, 35};
+        int[]    rsiOverboughts = {65, 70};
+        double[] slMults        = {2.0, 2.5, 3.0, 3.5, 4.0};
+        double[] tpMults        = {3.5, 4.0, 5.0, 6.0, 7.0};
+        String[] symbols        = {"PEPEUSDT", "SOLUSDT", "AVAXUSDT", "BNBUSDT"};
+
+        TradingConfig config = TradingConfig.getInstance();
+        String dline = "═".repeat(100);
+        String line  = "─".repeat(100);
+
+        for (String symbol : symbols) {
+            List<Candle> candles = fetchCandles(config, symbol, timeframe, candleCnt);
+            if (candles.isEmpty()) { log.warn("[{}] 캔들 없음, 스킵", symbol); continue; }
+
+            double totalDays = (candles.get(candles.size() - 1).getTimestamp()
+                - candles.get(warmup).getTimestamp()) / (1000.0 * 60 * 60 * 24);
+            log.info("[{}] 캔들 {}개, {}일 EMA필터 비교 시작", symbol, candles.size(), String.format("%.1f", totalDays));
+
+            List<BB1mSweepResult> offResults = new ArrayList<>();
+            List<BB1mSweepResult> onResults  = new ArrayList<>();
+
+            for (int rsiOS : rsiOversolds) {
+                for (int rsiOB : rsiOverboughts) {
+                    for (double sl : slMults) {
+                        for (double tp : tpMults) {
+                            if (tp <= sl) continue;
+                            // 필터 OFF
+                            TradingStrategy stratOff = new BollingerBandReversionStrategy(
+                                bbPeriod, bbStdDev, rsiOS, rsiOB, sl, tp, 0);
+                            BacktestResult rOff = new Backtester(
+                                stratOff, candles, INIT_BAL, FEE_PCT, warmup, symbol, leverage).run();
+                            double tpdOff = totalDays > 0 ? rOff.getTotalTrades() / totalDays : 0;
+                            offResults.add(new BB1mSweepResult(bbPeriod, bbStdDev, rsiOS, rsiOB, sl, tp, rOff, tpdOff, 0));
+
+                            // 필터 ON (EMA200)
+                            TradingStrategy stratOn = new BollingerBandReversionStrategy(
+                                bbPeriod, bbStdDev, rsiOS, rsiOB, sl, tp, trendEma);
+                            BacktestResult rOn = new Backtester(
+                                stratOn, candles, INIT_BAL, FEE_PCT, warmup, symbol, leverage).run();
+                            double tpdOn = totalDays > 0 ? rOn.getTotalTrades() / totalDays : 0;
+                            onResults.add(new BB1mSweepResult(bbPeriod, bbStdDev, rsiOS, rsiOB, sl, tp, rOn, tpdOn, 0));
+                        }
+                    }
+                }
+            }
+
+            String header = String.format("%-5s %-5s %-5s %-5s │ %5s %6s %7s %8s %7s %7s",
+                "osRS", "obRS", "SL×", "TP×", "건수", "승률%", "건/일", "수익%", "MDD%", "Sharpe");
+
+            log.info("{}", dline);
+            log.info("  [{}]  BB17/2.6  15m  {}x  |  기간: {}일  |  EMA 추세 필터 OFF vs ON(EMA{})",
+                symbol, leverage, String.format("%.1f", totalDays), trendEma);
+
+            log.info("▶ [필터 OFF] TOP 10");
+            log.info("{}", header);
+            log.info("{}", line);
+            offResults.stream()
+                .filter(r -> r.result.getTotalTrades() >= 3 && r.result.getTotalReturnPct() > 0)
+                .sorted(Comparator.comparingDouble((BB1mSweepResult r) -> r.result.getTotalReturnPct()).reversed())
+                .limit(10)
+                .forEach(r -> log.info("{}", String.format(
+                    "%-5.0f %-5.0f %-5.1f %-5.1f │ %5d %6.1f %7.2f %8.2f %7.2f %7.2f",
+                    r.rsiOversold, r.rsiOverbought, r.sl, r.tp,
+                    r.result.getTotalTrades(), r.result.getWinRate(), r.tradesPerDay,
+                    r.result.getTotalReturnPct(), r.result.getMaxDrawdownPct(), r.result.getSharpeRatio())));
+
+            log.info("▶ [필터 ON EMA{}] TOP 10", trendEma);
+            log.info("{}", header);
+            log.info("{}", line);
+            onResults.stream()
+                .filter(r -> r.result.getTotalTrades() >= 3 && r.result.getTotalReturnPct() > 0)
+                .sorted(Comparator.comparingDouble((BB1mSweepResult r) -> r.result.getTotalReturnPct()).reversed())
+                .limit(10)
+                .forEach(r -> log.info("{}", String.format(
+                    "%-5.0f %-5.0f %-5.1f %-5.1f │ %5d %6.1f %7.2f %8.2f %7.2f %7.2f",
+                    r.rsiOversold, r.rsiOverbought, r.sl, r.tp,
+                    r.result.getTotalTrades(), r.result.getWinRate(), r.tradesPerDay,
+                    r.result.getTotalReturnPct(), r.result.getMaxDrawdownPct(), r.result.getSharpeRatio())));
+
+            long offPos = offResults.stream().filter(r -> r.result.getTotalReturnPct() > 0).count();
+            long onPos  = onResults.stream().filter(r -> r.result.getTotalReturnPct() > 0).count();
+            log.info("{}", line);
+            log.info("플러스 수익: OFF={}/{}  ON={}/{}  기간: {}일",
+                offPos, offResults.size(), onPos, onResults.size(), String.format("%.1f", totalDays));
         }
     }
 

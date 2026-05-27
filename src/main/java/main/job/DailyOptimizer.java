@@ -106,6 +106,15 @@ public class DailyOptimizer {
                 continue;
             }
             OptimizationProposal selected = top3.get(idx);
+            SymbolConfig sc = config.getSymbolConfigs().computeIfAbsent(sym, SymbolConfig::defaults);
+            boolean unchanged = sc.getRsiOversold() == selected.rsiOS()
+                && sc.getRsiOverbought() == selected.rsiOB()
+                && Math.abs(sc.getSlMult() - selected.slMult()) < 0.01
+                && Math.abs(sc.getTpMult() - selected.tpMult()) < 0.01;
+            if (unchanged) {
+                result.append(String.format("• <b>%s</b>: 설정 유지 (현재 값과 동일)\n", sym));
+                continue;
+            }
             applyProposal(sym, selected);
             result.append(String.format(
                 "• <b>%s</b>: rsiOS=%d / rsiOB=%d / SL=%.1f× / TP=%.1f×\n",
@@ -250,8 +259,12 @@ public class DailyOptimizer {
             String before = content;
             content = content.replaceAll("  " + symbol + "\\s+\\{[^}]+\\}", newLine);
             if (content.equals(before)) {
-                log.warn("application.conf {} 라인 업데이트 실패: 패턴 매칭 오류 (심볼 라인을 찾지 못했습니다)", symbol);
-                telegram.sendRawMessage("⚠️ " + symbol + " conf 저장 실패: 패턴 매칭 오류 — 수동 확인 필요");
+                if (before.contains(newLine)) {
+                    log.info("application.conf {} 설정 유지 (변경 없음)", symbol);
+                } else {
+                    log.warn("application.conf {} 라인 업데이트 실패: 패턴 매칭 오류 (심볼 라인을 찾지 못했습니다)", symbol);
+                    telegram.sendRawMessage("⚠️ " + symbol + " conf 저장 실패: 패턴 매칭 오류 — 수동 확인 필요");
+                }
                 return;
             }
             Files.writeString(path, content, StandardCharsets.UTF_8);

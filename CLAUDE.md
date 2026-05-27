@@ -47,7 +47,7 @@ src/main/java/main/
 
 ## 현재 활성 전략: BollingerBandReversionStrategy ★ (알트코인 15m)
 
-- **심볼**: PEPEUSDT / SOLUSDT / AVAXUSDT / BNBUSDT (멀티페어)
+- **심볼**: PEPEUSDT / SOLUSDT / XRPUSDT / WIFUSDT (멀티페어)
 - **진입**: BB(17, 2.6σ) 이탈 + RSI 극단
 - **청산**: SL/TP = ATR 배수 기반 (코인별 상이), 포지션 보유 중 HOLD 반환
 - **레버리지**: 10x, **타임프레임**: 15m
@@ -56,10 +56,10 @@ src/main/java/main/
 
 | 심볼 | rsiOS | rsiOB | SL× | TP× |
 |------|-------|-------|-----|-----|
-| PEPEUSDT | 35 | 65 | 3.5 | 4.0 |
-| SOLUSDT  | 30 | 70 | 4.0 | 7.0 |
-| AVAXUSDT | 25 | 65 | 4.0 | 6.0 |
-| BNBUSDT  | 35 | 65 | 4.0 | 5.0 |
+| PEPEUSDT | 35 | 60 | 3.5 | 6.0 |
+| SOLUSDT  | 35 | 60 | 4.0 | 3.5 |
+| XRPUSDT  | 30 | 65 | 3.0 | 7.0 |
+| WIFUSDT  | 25 | 70 | 4.0 | 6.0 |
 
 ---
 
@@ -142,6 +142,20 @@ src/main/java/main/
 | BNBUSDT  | 61% | 41% | 42/68 | ON 안정적(MDD 4% vs 31%) |
 
 **판단**: BB+RSI 극단 진입 전략은 추세와 무관하게 작동하므로 EMA 필터가 전반적으로 수익을 낮춤. 실거래 미적용. `trendFilterEma = 0` 기본값 유지.
+
+### 심볼 교체 — AVAX/BNB → XRP/WIF (2026-05-27) — **채택**
+
+실거래 승률 분석(05-21~05-27): AVAXUSDT 승률 20% / -$107 손실로 전체 손실 93% 유발. BNB 승률 75%이나 순손익 -$13.60으로 의미 없는 수준. 대체 후보 7종 30일 BB17/2.6σ 스윕.
+
+| 심볼 | 최고수익% | 플러스 조합 | 최적 파라미터 | 채택 |
+|------|-----------|-------------|---------------|------|
+| XRPUSDT  | 221% | **108/132** | rsiOS=30, rsiOB=65, SL=3.0, TP=7.0 | ✅ 채택 |
+| WIFUSDT  | 988% | 74/132 | rsiOS=25, rsiOB=70, SL=4.0, TP=6.0 | ✅ 채택 |
+| LINKUSDT | 267% | 34/132 | rsiOS=30, rsiOB=70, SL=3.5, TP=7.0 | 차선 |
+| DOGEUSDT | 134% | 26/132 | - | ❌ 부적합 |
+| SUIUSDT  | 507% | 25/132 | - | ❌ MDD 89% |
+
+**판단**: XRP는 132조합 중 81.8%가 플러스로 전략 적합성 최고. WIF는 수익률 및 플러스 조합 모두 우수. DOGE는 기대 이하, SUI는 MDD 위험.
 
 ---
 

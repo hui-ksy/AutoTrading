@@ -38,7 +38,7 @@ public class BacktestRunner {
     private static final double FEE_PCT  = 0.06;     // 편도 수수료 %
 
     public static void main(String[] args) {
-        runTrendFilterComparison();
+        runMultiPairLongSweep();
     }
 
     // ── 최근 1일 체크 (오늘 거래가 없었던 게 맞는지 검증) ─────────────────
@@ -1796,8 +1796,8 @@ public class BacktestRunner {
         int[]    rsiOverboughts = {65, 70};
         double[] slMults        = {2.0, 2.5, 3.0, 3.5, 4.0};
         double[] tpMults        = {3.5, 4.0, 5.0, 6.0, 7.0};
-        // DOGE 대체 후보 탐색: PEPE/SOL 기준값 포함, 신규 후보들 함께 비교
-        String[] symbols        = {"XRPUSDT", "BNBUSDT", "AVAXUSDT", "LINKUSDT", "SUIUSDT", "WIFUSDT", "PEPEUSDT", "SOLUSDT"};
+        // AVAX/BNB 대체 후보: DOGE/XRP/LINK/SUI/WIF + 기준비교 PEPE/SOL
+        String[] symbols        = {"DOGEUSDT", "XRPUSDT", "LINKUSDT", "SUIUSDT", "WIFUSDT", "PEPEUSDT", "SOLUSDT"};
 
         TradingConfig config = TradingConfig.getInstance();
         String dline = "═".repeat(92);

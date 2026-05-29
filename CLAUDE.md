@@ -75,11 +75,25 @@ src/main/java/main/
 
 ## 텔레그램 명령어
 
-`/status` `/balance` `/stop` `/start` `/add [SYM]` `/close [SYM]` `/close all`
-`/long on/off` `/short on/off` `/tp [%]` `/sl [%]` `/stop [SYM]` `/start [SYM]`
-`/direction on/off` `/optimize` `/optimize [코인]` `/percent [N]` `/help`
+| 명령어 | 설명 |
+|--------|------|
+| `/balance` | 계좌 잔고 현황 |
+| `/stop` | 모든 봇 정지 |
+| `/stop [심볼]` | 특정 봇 정지 (예: `/stop xrp`) |
+| `/start` | 모든 봇 재시작 |
+| `/start [심볼]` | 특정 봇 재시작 (예: `/start xrp`) |
+| `/close all` | 모든 포지션 청산 |
+| `/close [심볼]` | 특정 포지션 청산 (예: `/close xrp`) |
+| `/direction on/off` | 방향성 필터 활성화/비활성화 |
+| `/percent [N]` | 진입 비율 변경 — 인메모리 + application.conf 동시 업데이트 |
+| `/holdtime [N]` | 최대 보유 시간 변경 — 인메모리 + application.conf 동시 업데이트 |
+| `/holdtime on` | 최대 보유 시간 활성화 (12시간 기본값) |
+| `/holdtime off` | 최대 보유 시간 비활성화 |
+| `/optimize` | 전체 코인 파라미터 최적화 |
+| `/optimize [코인]` | 특정 코인만 최적화 (예: `/optimize pepe`) |
+| `/help` | 명령어 목록 표시 |
 
-- `/percent [N]` — 진입 비율 변경 (예: `/percent 10`). 인메모리 + application.conf 동시 업데이트.
+**심볼 입력**: 대소문자 무관, `usdt` 생략 가능 (예: `xrp` → `XRPUSDT`)
 
 ---
 

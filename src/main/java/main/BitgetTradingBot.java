@@ -66,8 +66,6 @@ public class BitgetTradingBot {
                     return "봇이 현재 정지 상태입니다. /start 로 재시작하거나 /help 를 입력하세요.";
                 }
 
-                if (command.equals("/status")) return getStatusSummary();
-                if (command.equals("/balance")) return getBalanceSummary();
                 if (command.equals("/stop")) {
                     gracefulShutdown = true;
                     stopAllTraders();
@@ -77,86 +75,60 @@ public class BitgetTradingBot {
                     startAllTraders();
                     return "✅ 모든 봇이 재시작되었습니다.";
                 }
+                if (command.equals("/balance")) {
+                    return String.format("💰 <b>계좌 잔고 현황</b>\n\n<b>총 자산:</b> $%.2f\n<b>가용 잔고:</b> $%.2f",
+                            sharedTotalEquity, sharedAvailableBalance);
+                }
                 if (command.equals("/close all")) {
                     closeAllPositions();
                     return "⚠️ 모든 포지션 시장가 청산 명령을 실행했습니다.";
                 }
-                if (command.equals("/help")) return getHelpMessage();
-
-                if (command.equals("/long on")) {
-                    config.setAllowLong(true);
-                    return "✅ Long 진입이 활성화되었습니다.";
-                }
-                if (command.equals("/long off")) {
-                    config.setAllowLong(false);
-                    return "🛑 Long 진입이 비활성화되었습니다.";
-                }
-                if (command.equals("/short on")) {
-                    config.setAllowShort(true);
-                    return "✅ Short 진입이 활성화되었습니다.";
-                }
-                if (command.equals("/short off")) {
-                    config.setAllowShort(false);
-                    return "🛑 Short 진입이 비활성화되었습니다.";
-                }
-
-                if (command.startsWith("/tp ")) {
-                    try {
-                        double tp = Double.parseDouble(command.substring("/tp ".length()).trim());
-                        config.setTakeProfitPercent(tp);
-                        return String.format("✅ 익절(TP) 비율이 %.2f%%로 변경되었습니다.", tp);
-                    } catch (NumberFormatException e) {
-                        return "❌ 잘못된 숫자 형식입니다. 예: /tp 0.5";
-                    }
-                }
-                if (command.startsWith("/sl ")) {
-                    try {
-                        double sl = Double.parseDouble(command.substring("/sl ".length()).trim());
-                        config.setStopLossPercent(sl);
-                        return String.format("✅ 손절(SL) 비율이 %.2f%%로 변경되었습니다.", sl);
-                    } catch (NumberFormatException e) {
-                        return "❌ 잘못된 숫자 형식입니다. 예: /sl 0.3";
-                    }
-                }
-
                 if (command.startsWith("/close ")) {
-                    String symbol = command.substring("/close ".length()).trim().toUpperCase();
+                    String symbol = resolveSymbol(command.substring("/close ".length()));
                     return closeSpecificPosition(symbol);
                 }
-
-                if (command.startsWith("/stop ")) {
-                    String symbol = command.substring("/stop ".length()).trim().toUpperCase();
-                    return stopSpecificTrader(symbol);
-                }
-
-                if (command.startsWith("/start ")) {
-                    String symbol = command.substring("/start ".length()).trim().toUpperCase();
-                    return startSpecificTrader(symbol);
-                }
-
-                if (command.startsWith("/add ")) {
-                    String symbol = command.substring("/add ".length()).trim().toUpperCase();
-                    return addTrader(symbol);
-                }
-
                 if (command.equals("/direction on")) {
                     directionFilterEnabled = true;
-                    return "✅ 방향성 필터가 활성화되었습니다. (LONG 중엔 SHORT 차단, SHORT 중엔 LONG 차단)";
+                    return "✅ 방향성 필터가 활성화되었습니다.";
                 }
                 if (command.equals("/direction off")) {
                     directionFilterEnabled = false;
                     return "🛑 방향성 필터가 비활성화되었습니다.";
                 }
-
                 if (command.startsWith("/percent ")) {
                     try {
                         double pct = Double.parseDouble(command.substring("/percent ".length()).trim());
-                        if (pct <= 0 || pct > 100) return "❌ 1~100 사이 값을 입력하세요. 예: /percent 10";
+                        if (pct <= 0 || pct > 100) return "❌ 1~100 사이의 값을 입력하세요.";
                         config.setOrderPercentOfBalance(pct);
                         updateConfigPercent(pct);
                         return String.format("✅ 진입 비율이 <b>%.1f%%</b>로 변경되었습니다.", pct);
                     } catch (NumberFormatException e) {
                         return "❌ 잘못된 숫자 형식입니다. 예: /percent 10";
+                    }
+                }
+                if (command.equals("/help")) return getHelpMessage();
+
+                if (command.equals("/holdtime off")) {
+                    config.setMaxHoldHours(0);
+                    updateConfigHoldTime(0);
+                    return "🛑 최대 보유 시간 제한이 <b>비활성화</b>되었습니다.";
+                }
+                if (command.equals("/holdtime on")) {
+                    int hours = 12;
+                    config.setMaxHoldHours(hours);
+                    updateConfigHoldTime(hours);
+                    return String.format("✅ 최대 보유 시간이 <b>%d시간</b>으로 활성화되었습니다.", hours);
+                }
+                if (command.startsWith("/holdtime ")) {
+                    try {
+                        int hours = Integer.parseInt(command.substring("/holdtime ".length()).trim());
+                        if (hours < 0) return "❌ 0 이상의 값을 입력하세요. (0=비활성화)";
+                        config.setMaxHoldHours(hours);
+                        updateConfigHoldTime(hours);
+                        if (hours == 0) return "🛑 최대 보유 시간 제한이 <b>비활성화</b>되었습니다.";
+                        return String.format("✅ 최대 보유 시간이 <b>%d시간</b>으로 변경되었습니다.", hours);
+                    } catch (NumberFormatException e) {
+                        return "❌ 잘못된 숫자 형식입니다. 예: /holdtime 24";
                     }
                 }
 
@@ -165,8 +137,7 @@ public class BitgetTradingBot {
                     return "⏳ 전체 코인 파라미터 최적화를 시작합니다. 잠시 후 결과가 전송됩니다.";
                 }
                 if (command.startsWith("/optimize ")) {
-                    String sym = command.substring(10).trim().toUpperCase();
-                    if (!sym.endsWith("USDT")) sym = sym + "USDT";
+                    String sym = resolveSymbol(command.substring("/optimize ".length()));
                     if (dailyOptimizer != null) dailyOptimizer.triggerNow(sym);
                     return "⏳ " + sym + " 파라미터 최적화를 시작합니다. 잠시 후 결과가 전송됩니다.";
                 }
@@ -268,47 +239,10 @@ public class BitgetTradingBot {
         autoTraders.add(trader);
     }
 
-    private static String addTrader(String symbol) {
-        boolean exists = autoTraders.stream().anyMatch(t -> t.getPair().equalsIgnoreCase(symbol));
-        if (exists) {
-            return "⚠️ 이미 실행 중인 코인입니다: " + symbol;
-        }
-
-        try {
-            addTraderInternal(symbol);
-            AutoTrader newTrader = autoTraders.get(autoTraders.size() - 1);
-            newTrader.start();
-            return "✅ 새로운 봇이 추가되고 시작되었습니다: " + symbol;
-        } catch (Exception e) {
-            log.error("봇 추가 실패", e);
-            return "❌ 봇 추가 실패: " + e.getMessage();
-        }
-    }
-
-    private static String stopSpecificTrader(String symbol) {
-        Optional<AutoTrader> target = autoTraders.stream()
-                .filter(t -> t.getPair().equalsIgnoreCase(symbol))
-                .findFirst();
-
-        if (target.isPresent()) {
-            target.get().stopBot();
-            return "🛑 " + symbol + " 봇이 정지되었습니다.";
-        } else {
-            return "⚠️ 해당 코인의 봇을 찾을 수 없습니다: " + symbol;
-        }
-    }
-
-    private static String startSpecificTrader(String symbol) {
-        Optional<AutoTrader> target = autoTraders.stream()
-                .filter(t -> t.getPair().equalsIgnoreCase(symbol))
-                .findFirst();
-
-        if (target.isPresent()) {
-            target.get().startBot();
-            return "✅ " + symbol + " 봇이 재시작되었습니다.";
-        } else {
-            return "⚠️ 해당 코인의 봇을 찾을 수 없습니다: " + symbol;
-        }
+    private static String resolveSymbol(String input) {
+        String upper = input.trim().toUpperCase();
+        if (!upper.endsWith("USDT")) upper = upper + "USDT";
+        return upper;
     }
 
     public static synchronized void recordAndReportTrade(Position closedPosition, double exitPrice, double pnlFromApi, double feeFromApi) {
@@ -558,56 +492,6 @@ public class BitgetTradingBot {
         return String.format("%,.4f", price);
     }
 
-    private static String getStatusSummary() {
-        List<String> summaries = new ArrayList<>();
-        for (AutoTrader trader : autoTraders) {
-            if (trader.getCurrentPosition() != null) {
-                Position position = trader.getCurrentPosition();
-                double currentPrice = (config.getMode() == TradingMode.LIVE)
-                        ? trader.getApiClient().getTickerPrice(trader.getPair())
-                        : globalPaperClient.getTickerPrice(trader.getPair());
-
-                if (currentPrice > 0) {
-                    double entryPrice = position.getEntryPrice();
-                    double pnlPercent = (currentPrice / entryPrice - 1) * 100;
-                    if ("SHORT".equals(position.getSide())) {
-                        pnlPercent *= -1;
-                    }
-                    pnlPercent *= config.getLeverage();
-
-                    String sideEmoji = "BUY".equals(position.getSide()) ? "🟢" : "🔴";
-                    String pnlEmoji = pnlPercent >= 0 ? "📈" : "📉";
-                    summaries.add(String.format("%s <b>%s</b> %s\n" +
-                                    "진입: $%s ➡️ 현재: $%s\n" +
-                                    "%s <b>%.2f%%</b>",
-                            sideEmoji, position.getSymbol(), position.getSide(),
-                            formatPrice(entryPrice), formatPrice(currentPrice),
-                            pnlEmoji, pnlPercent));
-                } else {
-                    summaries.add(String.format("⚪️ <b>%s</b> %s\n진입: $%s ➡️ 현재: 조회 실패",
-                            position.getSymbol(), position.getSide(), formatPrice(position.getEntryPrice())));
-                }
-            }
-        }
-
-        if (summaries.isEmpty()) {
-            return "현재 보유 중인 포지션이 없습니다.";
-        }
-
-        StringBuilder sb = new StringBuilder("📋 <b>현재 포지션 요약</b>\n\n");
-        for (String s : summaries) {
-            sb.append(s).append("\n\n");
-        }
-        return sb.toString();
-    }
-
-    private static String getBalanceSummary() {
-        StringBuilder sb = new StringBuilder("💰 <b>계좌 잔고 현황</b>\n\n");
-        sb.append(String.format("<b>총 자산:</b> $%.2f\n", sharedTotalEquity));
-        sb.append(String.format("<b>가용 잔고:</b> $%.2f\n", sharedAvailableBalance));
-        return sb.toString();
-    }
-
     private static void stopAllTraders() {
         botRunning = false;
         for (AutoTrader trader : autoTraders) {
@@ -659,6 +543,18 @@ public class BitgetTradingBot {
         }
     }
 
+    private static void updateConfigHoldTime(int hours) {
+        try {
+            var path = Paths.get("src/main/resources/application.conf");
+            String content = Files.readString(path, StandardCharsets.UTF_8);
+            content = content.replaceAll("maxHoldHours\\s*=\\s*[0-9]+", "maxHoldHours = " + hours);
+            Files.writeString(path, content, StandardCharsets.UTF_8);
+            log.info("application.conf maxHoldHours → {} 업데이트 완료", hours);
+        } catch (IOException e) {
+            log.error("application.conf 업데이트 실패: {}", e.getMessage());
+        }
+    }
+
     private static void startHeartbeatThread(String pingUrl) {
         if (pingUrl == null || pingUrl.isBlank()) return;
 
@@ -679,23 +575,20 @@ public class BitgetTradingBot {
 
     private static String getHelpMessage() {
         return "<b>사용 가능한 명령어:</b>\n" +
-                "/status - 현재 포지션 요약\n" +
                 "/balance - 계좌 잔고 현황\n" +
                 "/stop - 모든 봇 정지\n" +
-                "/stop [SYMBOL] - 특정 봇 정지\n" +
+                "/stop [심볼] - 특정 봇 정지 (예: /stop xrp)\n" +
                 "/start - 모든 봇 재시작\n" +
-                "/start [SYMBOL] - 특정 봇 재시작\n" +
-                "/add [SYMBOL] - 새로운 코인 봇 추가\n" +
+                "/start [심볼] - 특정 봇 재시작 (예: /start xrp)\n" +
                 "/close all - 모든 포지션 청산\n" +
-                "/close [SYMBOL] - 특정 포지션 청산\n" +
-                "/long on/off - Long 진입 허용/금지\n" +
-                "/short on/off - Short 진입 허용/금지\n" +
-                "/tp [PERCENT] - 익절 비율 변경 (예: /tp 0.5)\n" +
-                "/sl [PERCENT] - 손절 비율 변경 (예: /sl 0.3)\n" +
-                "/percent [N] - 진입 비율 변경 (예: /percent 10)\n" +
+                "/close [심볼] - 특정 포지션 청산 (예: /close xrp)\n" +
                 "/direction on/off - 방향성 필터 활성화/비활성화\n" +
+                "/percent [N] - 진입 비율 변경 (예: /percent 10)\n" +
+                "/holdtime [N] - 최대 보유 시간 변경 (예: /holdtime 12)\n" +
+                "/holdtime on - 최대 보유 시간 활성화\n" +
+                "/holdtime off - 최대 보유 시간 비활성화\n" +
                 "/optimize - 전체 코인 파라미터 최적화\n" +
-                "/optimize [코인] - 특정 코인만 최적화 (예: /optimize PEPE)\n" +
+                "/optimize [코인] - 특정 코인만 최적화 (예: /optimize pepe)\n" +
                 "/help - 명령어 목록 표시";
     }
 }

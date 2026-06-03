@@ -135,7 +135,7 @@ public class AutoTrader {
             double currentPrice = getCurrentPrice();
             if (currentPrice > 0) {
                 int maxHoldHours = config.getMaxHoldHours();
-                if (maxHoldHours > 0 && currentPosition.getEntryTimestamp() > 0) {
+                if (config.isMaxHoldEnabled() && maxHoldHours > 0 && currentPosition.getEntryTimestamp() > 0) {
                     long holdMs = System.currentTimeMillis() - currentPosition.getEntryTimestamp();
                     if (holdMs > (long) maxHoldHours * 3_600_000L) {
                         log.warn("[{}] 최대 보유 시간({}h) 초과 — 포지션 강제 청산", pair, maxHoldHours);
@@ -481,8 +481,12 @@ public class AutoTrader {
             tradeHandler.handle(currentPosition, resolvedExitPrice, closedTrade.getProfit(), closedTrade.getFee());
         } else {
             double currentPrice = apiClient.getTickerPrice(pair);
-            log.warn("[{}] 최근 거래 내역 조회 실패. 현재가({})로 손익을 추정합니다.", pair, currentPrice);
-            tradeHandler.handle(currentPosition, currentPrice, 0, 0);
+            if (currentPrice <= 0) {
+                log.warn("[{}] 최근 거래 내역 및 현재가 조회 모두 실패 (네트워크 오류). 손익 기록 없이 포지션만 초기화합니다.", pair);
+            } else {
+                log.warn("[{}] 최근 거래 내역 조회 실패. 현재가({})로 손익을 추정합니다.", pair, currentPrice);
+                tradeHandler.handle(currentPosition, currentPrice, 0, 0);
+            }
         }
         
         if (apiClient instanceof BitgetFuturesApiClient) {
@@ -507,6 +511,17 @@ public class AutoTrader {
                     double tp = isLong
                             ? entry + atr * symbolConfig.getTpMult()
                             : entry - atr * symbolConfig.getTpMult();
+
+                    // takeover 시 현재가 위에 TP가 있어야 40830 에러 방지
+                    double currentPrice = apiClient.getTickerPrice(pair);
+                    if (currentPrice > 0) {
+                        if (isLong && tp <= currentPrice) {
+                            tp = currentPrice * 1.005 + atr * symbolConfig.getTpMult();
+                        } else if (!isLong && tp >= currentPrice) {
+                            tp = currentPrice * 0.995 - atr * symbolConfig.getTpMult();
+                        }
+                    }
+
                     position.setStopLoss(sl);
                     position.setTakeProfit(tp);
                     log.info("[{}] ATR 기반 손익절 설정 - SL: {}, TP: {} (ATR={}, SLx{}, TPx{})",

@@ -99,6 +99,7 @@ public class BollingerBandReversionStrategy implements TradingStrategy {
         double rsi = rsiList.get(rsiList.size() - 1);
 
         double atr = TechnicalIndicators.calculateATR(candles, atrPeriod);
+        if (atr <= 0) return hold("ATR 계산 불가 — 진입 차단");
 
         // ── 포지션 보유 중: SL/TP는 Backtester 처리, 여기서는 HOLD ──────
         if (position != null) {

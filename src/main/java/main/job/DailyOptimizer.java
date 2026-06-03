@@ -18,24 +18,17 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicReference;
 
 @Slf4j
 public class DailyOptimizer {
 
-    // 15m 캔들 30일치 = 30*24*4 = 2880 개 + 워밍업
-    private static final int    CANDLE_COUNT     = 2920;
-    private static final long   REPLY_TIMEOUT_MS = 30 * 60 * 1000L; // 30분
-    private static final String CONFIG_PATH      = "src/main/resources/application.conf";
+    private static final int    CANDLE_COUNT = 2920;
+    private static final String CONFIG_PATH  = "src/main/resources/application.conf";
 
     private final TradingConfig    config;
     private final TelegramNotifier telegram;
     private final List<AutoTrader> traders;
     private final ScheduledExecutorService scheduler;
-
-    // symbol → top3 proposals (순서 보존)
-    private final AtomicReference<Map<String, List<OptimizationProposal>>> pendingProposals = new AtomicReference<>(null);
-    private ScheduledFuture<?> timeoutFuture;
 
     public DailyOptimizer(TradingConfig config, TelegramNotifier telegram, List<AutoTrader> traders) {
         this.config   = config;
@@ -54,184 +47,105 @@ public class DailyOptimizer {
         if (!now.isBefore(noon)) noon = noon.plusDays(1);
         long initialDelay = Duration.between(now, noon).getSeconds();
 
-        scheduler.scheduleAtFixedRate(this::runAndPropose, initialDelay, 86400, TimeUnit.SECONDS);
+        scheduler.scheduleAtFixedRate(this::runAndApply, initialDelay, 86400, TimeUnit.SECONDS);
         log.info("DailyOptimizer 스케줄 등록 — 다음 실행: {} ({}초 후)", noon, initialDelay);
     }
 
-    /** 전체 코인 최적화 트리거 */
     public void triggerNow() {
-        scheduler.submit(this::runAndPropose);
+        scheduler.submit(this::runAndApply);
         log.info("DailyOptimizer 즉시 실행 요청 (전체)");
     }
 
-    /** 특정 코인만 최적화 트리거 */
     public void triggerNow(String symbol) {
-        scheduler.submit(() -> runAndProposeSymbol(symbol));
+        scheduler.submit(() -> runAndApplySymbol(symbol));
         log.info("DailyOptimizer 즉시 실행 요청 ({})", symbol);
     }
 
-    /**
-     * Telegram reply 처리. 대기 중인 제안이 있을 때만 동작.
-     * 입력 형식: "1 2 0" (코인 순서대로, 0=유지)
-     */
+    /** 더 이상 대기 중인 제안이 없으므로 항상 null 반환 */
     public String handleReply(String text) {
-        Map<String, List<OptimizationProposal>> proposals = pendingProposals.get();
-        if (proposals == null) return null;
-
-        String trimmed = text.trim();
-        List<String> symbols = new ArrayList<>(proposals.keySet());
-        int n = symbols.size();
-
-        String[] parts = trimmed.split("[\\s,]+");
-        if (parts.length != n) return null;
-        for (String p : parts) {
-            if (!p.matches("[0-3]")) return null;
-        }
-
-        cancelTimeout();
-        pendingProposals.set(null);
-
-        StringBuilder result = new StringBuilder("✅ <b>파라미터 적용 결과</b>\n\n");
-        for (int i = 0; i < n; i++) {
-            String sym = symbols.get(i);
-            int choice = Integer.parseInt(parts[i]);
-            if (choice == 0) {
-                result.append(String.format("• <b>%s</b>: 현재 유지\n", sym));
-                continue;
-            }
-            List<OptimizationProposal> top3 = proposals.get(sym);
-            int idx = choice - 1;
-            if (idx >= top3.size()) {
-                result.append(String.format("• <b>%s</b>: ⚠️ 잘못된 번호\n", sym));
-                continue;
-            }
-            OptimizationProposal selected = top3.get(idx);
-            SymbolConfig sc = config.getSymbolConfigs().computeIfAbsent(sym, SymbolConfig::defaults);
-            boolean unchanged = sc.getRsiOversold() == selected.rsiOS()
-                && sc.getRsiOverbought() == selected.rsiOB()
-                && Math.abs(sc.getSlMult() - selected.slMult()) < 0.01
-                && Math.abs(sc.getTpMult() - selected.tpMult()) < 0.01;
-            if (unchanged) {
-                result.append(String.format("• <b>%s</b>: 설정 유지 (현재 값과 동일)\n", sym));
-                continue;
-            }
-            applyProposal(sym, selected);
-            result.append(String.format(
-                "• <b>%s</b>: rsiOS=%d / rsiOB=%d / SL=%.1f× / TP=%.1f×\n",
-                sym, selected.rsiOS(), selected.rsiOB(), selected.slMult(), selected.tpMult()
-            ));
-        }
-        result.append("\n봇이 다음 캔들부터 새 파라미터로 동작합니다.");
-        return result.toString();
+        return null;
     }
 
-    private void runAndPropose() {
-        runAndProposeSymbols(getActiveSymbols());
+    private void runAndApply() {
+        runAndApplySymbols(getActiveSymbols());
     }
 
-    private void runAndProposeSymbol(String symbol) {
-        runAndProposeSymbols(List.of(symbol));
+    private void runAndApplySymbol(String symbol) {
+        runAndApplySymbols(List.of(symbol));
     }
 
-    private void runAndProposeSymbols(List<String> symbols) {
+    private void runAndApplySymbols(List<String> symbols) {
         log.info("일일 파라미터 최적화 스윕 시작 — 대상: {}", symbols);
         telegram.sendRawMessage(String.format(
             "⏳ <b>일일 파라미터 최적화 중...</b>\n대상: %s\n잠시 기다려 주세요.", symbols));
 
-        Map<String, List<OptimizationProposal>> allTop3 = new LinkedHashMap<>();
+        Map<String, OptimizationProposal> applied = new LinkedHashMap<>();
+        Map<String, String>               skipped = new LinkedHashMap<>();
+
         for (String sym : symbols) {
             log.info("  스윕: {}", sym);
             try {
-                List<OptimizationProposal> top3 = BacktestRunner.runSweepForOptimizer(sym, CANDLE_COUNT)
+                Optional<OptimizationProposal> best = BacktestRunner.runSweepForOptimizer(sym, CANDLE_COUNT)
                     .stream()
                     .filter(p -> p.returnPct() > 0)
-                    .sorted(Comparator.comparingDouble(OptimizationProposal::returnPct).reversed())
-                    .limit(3)
-                    .toList();
-                allTop3.put(sym, top3);
+                    .max(Comparator.comparingDouble(OptimizationProposal::returnPct));
+
+                if (best.isEmpty()) {
+                    skipped.put(sym, "수익 플러스 조합 없음");
+                    continue;
+                }
+
+                OptimizationProposal top = best.get();
+                SymbolConfig sc = config.getSymbolConfigs().computeIfAbsent(sym, SymbolConfig::defaults);
+                boolean unchanged = sc.getRsiOversold() == top.rsiOS()
+                    && sc.getRsiOverbought() == top.rsiOB()
+                    && Math.abs(sc.getSlMult() - top.slMult()) < 0.01
+                    && Math.abs(sc.getTpMult() - top.tpMult()) < 0.01;
+
+                if (unchanged) {
+                    skipped.put(sym, "현재 값과 동일");
+                    continue;
+                }
+
+                applyProposal(sym, top);
+                applied.put(sym, top);
+
             } catch (Exception e) {
                 log.error("{} 스윕 중 오류", sym, e);
-                telegram.sendRawMessage("⚠️ " + sym + " 스윕 중 오류: " + e.getMessage());
-                allTop3.put(sym, List.of());
+                skipped.put(sym, "오류: " + e.getMessage());
             }
         }
 
-        boolean anyResult = allTop3.values().stream().anyMatch(l -> !l.isEmpty());
-        if (!anyResult) {
-            telegram.sendRawMessage("📊 <b>일일 최적화 결과</b>\n\n수익 플러스 조합을 찾지 못했습니다. 현재 파라미터를 유지합니다.");
-            return;
-        }
-
-        pendingProposals.set(allTop3);
-        scheduleTimeout();
-        telegram.sendRawMessage(buildProposalMessage(allTop3));
+        telegram.sendRawMessage(buildResultMessage(applied, skipped));
     }
 
-    private void scheduleTimeout() {
-        cancelTimeout();
-        timeoutFuture = scheduler.schedule(() -> {
-            if (pendingProposals.getAndSet(null) != null) {
-                log.info("최적화 제안 30분 무응답 — 자동 취소");
-                telegram.sendRawMessage("⏰ 30분 무응답으로 최적화 제안이 취소되었습니다. 현재 파라미터를 유지합니다.");
-            }
-        }, 30, TimeUnit.MINUTES);
-    }
-
-    private void cancelTimeout() {
-        if (timeoutFuture != null && !timeoutFuture.isDone()) {
-            timeoutFuture.cancel(false);
-        }
-    }
-
-    private String buildProposalMessage(Map<String, List<OptimizationProposal>> allTop3) {
+    private String buildResultMessage(Map<String, OptimizationProposal> applied,
+                                      Map<String, String> skipped) {
         LocalDate today = LocalDate.now();
         LocalDate from  = today.minusDays(30);
         DateTimeFormatter fmt = DateTimeFormatter.ofPattern("MM-dd");
 
         StringBuilder sb = new StringBuilder();
         sb.append(String.format(
-            "📊 <b>일일 최적화 리포트</b> (15m, 10x)\n기간: %s ~ %s\n\n",
-            from.format(fmt), today.format(fmt)
-        ));
+            "📊 <b>일일 최적화 완료</b> (15m, 10x)\n기간: %s ~ %s\n\n",
+            from.format(fmt), today.format(fmt)));
 
-        List<String> symbols = new ArrayList<>(allTop3.keySet());
-        String[] numbers = {"1️⃣", "2️⃣", "3️⃣"};
-
-        for (String sym : symbols) {
-            SymbolConfig sc = config.getSymbolConfigs().computeIfAbsent(sym, SymbolConfig::defaults);
-            sb.append(String.format(
-                "<b>[%s]</b> 현재: rsiOS=%d / rsiOB=%d / SL=%.1f× / TP=%.1f×\n",
-                sym, sc.getRsiOversold(), sc.getRsiOverbought(), sc.getSlMult(), sc.getTpMult()
-            ));
-
-            List<OptimizationProposal> top3 = allTop3.get(sym);
-            if (top3.isEmpty()) {
-                sb.append("  ⚠️ 수익 조합 없음\n\n");
-                continue;
-            }
-            for (int i = 0; i < top3.size(); i++) {
-                OptimizationProposal p = top3.get(i);
-                sb.append(String.format(
-                    "  %s rsiOS=%d/rsiOB=%d SL=%.1f TP=%.1f → %+.0f%%, WR %.0f%%, MDD %.0f%%\n",
-                    numbers[i], p.rsiOS(), p.rsiOB(), p.slMult(), p.tpMult(),
-                    p.returnPct(), p.winRate(), p.mdd()
-                ));
-            }
+        if (!applied.isEmpty()) {
+            sb.append("✅ <b>적용된 파라미터</b>\n");
+            applied.forEach((sym, p) -> sb.append(String.format(
+                "• <b>%s</b>: rsiOS=%d / rsiOB=%d / SL=%.1f× / TP=%.1f× → %+.0f%%, WR %.0f%%, MDD %.0f%%\n",
+                sym, p.rsiOS(), p.rsiOB(), p.slMult(), p.tpMult(),
+                p.returnPct(), p.winRate(), p.mdd())));
             sb.append("\n");
         }
 
-        sb.append("0️⃣ = 유지\n");
-
-        List<String> shortNames = symbols.stream().map(s -> s.replace("USDT", "")).toList();
-        if (symbols.size() == 1) {
-            sb.append("\n번호를 입력해 주세요.");
-        } else {
-            sb.append(String.format(
-                "\n%s 순서로 번호 입력\n예) \"1 2 0\"",
-                String.join(" / ", shortNames)
-            ));
+        if (!skipped.isEmpty()) {
+            sb.append("ℹ️ <b>변경 없음</b>\n");
+            skipped.forEach((sym, reason) ->
+                sb.append(String.format("• <b>%s</b>: %s\n", sym, reason)));
         }
-        sb.append("\n⏰ 30분 내 응답이 없으면 자동 취소됩니다.");
+
+        sb.append("\n봇이 다음 캔들부터 새 파라미터로 동작합니다.");
         return sb.toString();
     }
 
@@ -262,7 +176,7 @@ public class DailyOptimizer {
                 if (before.contains(newLine)) {
                     log.info("application.conf {} 설정 유지 (변경 없음)", symbol);
                 } else {
-                    log.warn("application.conf {} 라인 업데이트 실패: 패턴 매칭 오류 (심볼 라인을 찾지 못했습니다)", symbol);
+                    log.warn("application.conf {} 라인 업데이트 실패: 패턴 매칭 오류", symbol);
                     telegram.sendRawMessage("⚠️ " + symbol + " conf 저장 실패: 패턴 매칭 오류 — 수동 확인 필요");
                 }
                 return;

@@ -116,7 +116,7 @@ src/main/java/main/
 
 - `SymbolConfig.java`: 심볼별 BB/RSI/SL/TP/candleInterval/tickerInterval 컨테이너
 - `TradingConfig`: `symbols` 블록 파싱 → `ConcurrentHashMap<String, SymbolConfig>`
-- `DailyOptimizer`: 코인별 스윕 → 각 SymbolConfig 업데이트 → `reloadStrategy()` 호출
+- `DailyOptimizer`: 코인별 스윕 → **자동으로 최고 수익률 파라미터 적용** (질의 없음) → `reloadStrategy()` 호출
 
 ---
 

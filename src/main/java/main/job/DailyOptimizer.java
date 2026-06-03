@@ -100,7 +100,8 @@ public class DailyOptimizer {
                 boolean unchanged = sc.getRsiOversold() == top.rsiOS()
                     && sc.getRsiOverbought() == top.rsiOB()
                     && Math.abs(sc.getSlMult() - top.slMult()) < 0.01
-                    && Math.abs(sc.getTpMult() - top.tpMult()) < 0.01;
+                    && Math.abs(sc.getTpMult() - top.tpMult()) < 0.01
+                    && Math.abs(sc.getBbWidthMult() - top.bbWidthMult()) < 0.01;
 
                 if (unchanged) {
                     skipped.put(sym, "현재 값과 동일");
@@ -133,8 +134,9 @@ public class DailyOptimizer {
         if (!applied.isEmpty()) {
             sb.append("✅ <b>적용된 파라미터</b>\n");
             applied.forEach((sym, p) -> sb.append(String.format(
-                "• <b>%s</b>: rsiOS=%d / rsiOB=%d / SL=%.1f× / TP=%.1f× → %+.0f%%, WR %.0f%%, MDD %.0f%%\n",
+                "• <b>%s</b>: rsiOS=%d / rsiOB=%d / SL=%.1f× / TP=%.1f× / BBW=%s → %+.0f%%, WR %.0f%%, MDD %.0f%%\n",
                 sym, p.rsiOS(), p.rsiOB(), p.slMult(), p.tpMult(),
+                p.bbWidthMult() == 0.0 ? "OFF" : String.format("%.1f×", p.bbWidthMult()),
                 p.returnPct(), p.winRate(), p.mdd())));
             sb.append("\n");
         }
@@ -155,9 +157,10 @@ public class DailyOptimizer {
         sc.setRsiOverbought(p.rsiOB());
         sc.setSlMult(p.slMult());
         sc.setTpMult(p.tpMult());
+        sc.setBbWidthMult(p.bbWidthMult());
 
-        log.info("{} 파라미터 적용: rsiOS={}, rsiOB={}, SL={}, TP={}",
-            symbol, p.rsiOS(), p.rsiOB(), p.slMult(), p.tpMult());
+        log.info("{} 파라미터 적용: rsiOS={}, rsiOB={}, SL={}, TP={}, BBW={}",
+            symbol, p.rsiOS(), p.rsiOB(), p.slMult(), p.tpMult(), p.bbWidthMult());
 
         traders.forEach(AutoTrader::reloadStrategy);
         updateConfigFile(symbol, p);
@@ -168,8 +171,8 @@ public class DailyOptimizer {
         try {
             String content = Files.readString(path, StandardCharsets.UTF_8);
             String newLine = String.format(
-                "  %s { bbPeriod = 17, bbStdDev = 2.6, rsiOversold = %d, rsiOverbought = %d, slMult = %.1f, tpMult = %.1f }",
-                symbol, p.rsiOS(), p.rsiOB(), p.slMult(), p.tpMult());
+                "  %s { bbPeriod = 17, bbStdDev = 2.6, rsiOversold = %d, rsiOverbought = %d, slMult = %.1f, tpMult = %.1f, bbWidthMult = %.1f }",
+                symbol, p.rsiOS(), p.rsiOB(), p.slMult(), p.tpMult(), p.bbWidthMult());
             String before = content;
             content = content.replaceAll("  " + symbol + "\\s+\\{[^}]+\\}", newLine);
             if (content.equals(before)) {

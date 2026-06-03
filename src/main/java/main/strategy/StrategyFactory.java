@@ -15,7 +15,7 @@ public class StrategyFactory {
                 sc.getBbPeriod(), sc.getBbStdDev(),
                 sc.getRsiOversold(), sc.getRsiOverbought(),
                 sc.getSlMult(), sc.getTpMult(),
-                sc.getTrendFilterEma());
+                sc.getBbWidthMult(), 20);
         }
         return createStrategy(config);
     }

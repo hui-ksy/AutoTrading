@@ -38,7 +38,7 @@ public class BacktestRunner {
     private static final double FEE_PCT  = 0.06;     // 편도 수수료 %
 
     public static void main(String[] args) {
-        runMultiPairLongSweep();
+        runBBWidthFilterSweep();
     }
 
     // ── 최근 1일 체크 (오늘 거래가 없었던 게 맞는지 검증) ─────────────────
@@ -1682,6 +1682,7 @@ public class BacktestRunner {
         int[]    rsiOverboughts = {60, 65, 70};
         double[] slMults        = {1.5, 2.0, 2.5, 3.5, 4.0};
         double[] tpMults        = {2.5, 3.5, 4.0, 5.0, 6.0};
+        double[] bbWidthMults   = {0.0, 1.5, 2.0, 2.5, 3.0};
 
         TradingConfig cfg = TradingConfig.getInstance();
         List<Candle> candles = fetchCandles(cfg, symbol, timeframe, candleCount);
@@ -1691,18 +1692,20 @@ public class BacktestRunner {
             - candles.get(warmup).getTimestamp()) / (1000.0 * 60 * 60 * 24);
 
         List<OptimizationProposal> results = new ArrayList<>();
-        for (int rsiOS : rsiOversolds) {
-            for (int rsiOB : rsiOverboughts) {
-                for (double sl : slMults) {
-                    for (double tp : tpMults) {
-                        TradingStrategy strategy = new BollingerBandReversionStrategy(
-                            bbPeriod, bbStdDev, rsiOS, rsiOB, sl, tp);
-                        Backtester bt = new Backtester(
-                            strategy, candles, INIT_BAL, FEE_PCT, warmup, symbol, leverage);
-                        BacktestResult r = bt.run();
-                        results.add(new OptimizationProposal(
-                            rsiOS, rsiOB, sl, tp,
-                            r.getTotalReturnPct(), r.getWinRate(), r.getMaxDrawdownPct()));
+        for (double bbwm : bbWidthMults) {
+            for (int rsiOS : rsiOversolds) {
+                for (int rsiOB : rsiOverboughts) {
+                    for (double sl : slMults) {
+                        for (double tp : tpMults) {
+                            TradingStrategy strategy = new BollingerBandReversionStrategy(
+                                bbPeriod, bbStdDev, rsiOS, rsiOB, sl, tp, bbwm, 20);
+                            Backtester bt = new Backtester(
+                                strategy, candles, INIT_BAL, FEE_PCT, warmup, symbol, leverage);
+                            BacktestResult r = bt.run();
+                            results.add(new OptimizationProposal(
+                                rsiOS, rsiOB, sl, tp, bbwm,
+                                r.getTotalReturnPct(), r.getWinRate(), r.getMaxDrawdownPct()));
+                        }
                     }
                 }
             }
@@ -1950,6 +1953,65 @@ public class BacktestRunner {
             log.info("{}", line);
             log.info("플러스 수익: OFF={}/{}  ON={}/{}  기간: {}일",
                 offPos, offResults.size(), onPos, onResults.size(), String.format("%.1f", totalDays));
+        }
+    }
+
+    // ── BB 폭 필터 ON/OFF 비교 스윕 ────────────────────────────────────
+    public static void runBBWidthFilterSweep() {
+        final String   timeframe    = "15m";
+        final int      candleCnt    = 2_920;  // 15m × 2920 ≈ 30일
+        final int      warmup       = 60;     // bbPeriod(17) + widthLookback(20) + 버퍼
+        final int      leverage     = 10;
+        final int      widthLookback = 20;
+
+        String[] symbols = {"PEPEUSDT", "SOLUSDT", "XRPUSDT", "WIFUSDT"};
+        int[]    rsiOS   = {35, 40, 30, 25};
+        int[]    rsiOB   = {60, 60, 65, 70};
+        double[] sl      = {3.5, 4.0, 3.0, 4.0};
+        double[] tp      = {6.0, 3.5, 7.0, 6.0};
+        double[] multipliers = {0.0, 1.5, 2.0, 2.5, 3.0};
+
+        TradingConfig config = TradingConfig.getInstance();
+        String dline = "═".repeat(80);
+        String line  = "─".repeat(80);
+
+        for (int s = 0; s < symbols.length; s++) {
+            String sym = symbols[s];
+            List<Candle> candles = fetchCandles(config, sym, timeframe, candleCnt);
+            if (candles.isEmpty()) { log.warn("[{}] 캔들 없음, 스킵", sym); continue; }
+
+            double totalDays = (candles.get(candles.size() - 1).getTimestamp()
+                - candles.get(warmup).getTimestamp()) / (1000.0 * 60 * 60 * 24);
+
+            log.info("{}", dline);
+            log.info("  [{}]  BB17/2.6  rsiOS={}  rsiOB={}  SL={}×  TP={}×  |  15m {}x  |  {}일",
+                sym, rsiOS[s], rsiOB[s], sl[s], tp[s], leverage,
+                String.format("%.1f", totalDays));
+            log.info("  BB 폭 필터 비교 (widthLookback={}) — ★ = 플러스 수익", widthLookback);
+            log.info("{}", String.format("%-14s │ %5s %6s %8s %7s %7s",
+                "multiplier", "건수", "승률%", "수익%", "MDD%", "Sharpe"));
+            log.info("{}", line);
+
+            for (double mult : multipliers) {
+                TradingStrategy strategy;
+                if (mult == 0.0) {
+                    strategy = new BollingerBandReversionStrategy(
+                        17, 2.6, rsiOS[s], rsiOB[s], sl[s], tp[s]);
+                } else {
+                    strategy = new BollingerBandReversionStrategy(
+                        17, 2.6, rsiOS[s], rsiOB[s], sl[s], tp[s], mult, widthLookback);
+                }
+                Backtester bt = new Backtester(strategy, candles, INIT_BAL, FEE_PCT, warmup, sym, leverage);
+                BacktestResult r = bt.run();
+
+                String label = mult == 0.0 ? "OFF" : String.format("%.1f×", mult);
+                String flag  = r.getTotalReturnPct() > 0 ? " ★" : "";
+                log.info("{}", String.format("%-14s │ %5d %6.1f %8.2f %7.2f %7.3f%s",
+                    label,
+                    r.getTotalTrades(), r.getWinRate(),
+                    r.getTotalReturnPct(), r.getMaxDrawdownPct(), r.getSharpeRatio(), flag));
+            }
+            log.info("{}", line);
         }
     }
 

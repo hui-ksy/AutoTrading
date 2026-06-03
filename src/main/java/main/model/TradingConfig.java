@@ -94,7 +94,8 @@ public class TradingConfig {
     private long tickerIntervalSeconds;
     private long positionStatusMinutes;
 
-    // 최대 포지션 보유 시간 (시간 단위, 0=비활성화)
+    // 최대 포지션 보유 시간
+    private boolean maxHoldEnabled;
     private int maxHoldHours;
 
     private java.util.concurrent.ConcurrentHashMap<String, SymbolConfig> symbolConfigs = new java.util.concurrent.ConcurrentHashMap<>();
@@ -193,6 +194,7 @@ public class TradingConfig {
         tc.setTickerIntervalSeconds(config.hasPath("trading.tickerIntervalSeconds") ? config.getLong("trading.tickerIntervalSeconds") : 1);
         tc.setPositionStatusMinutes(config.getLong("trading.positionStatusMinutes"));
         tc.setMaxHoldHours(config.hasPath("trading.maxHoldHours") ? config.getInt("trading.maxHoldHours") : 12);
+        tc.setMaxHoldEnabled(config.hasPath("trading.maxHoldEnabled") ? config.getBoolean("trading.maxHoldEnabled") : tc.getMaxHoldHours() > 0);
 
         // 심볼별 설정 로드 (실행 주기 설정 이후에 파싱해야 fallback 값이 올바름)
         if (config.hasPath("symbols")) {
@@ -216,6 +218,7 @@ public class TradingConfig {
                 s.setCandleIntervalSeconds(sc.hasPath("candleIntervalSeconds") ? sc.getLong("candleIntervalSeconds") : tc.getCandleIntervalSeconds());
                 s.setTickerIntervalSeconds(sc.hasPath("tickerIntervalSeconds") ? sc.getLong("tickerIntervalSeconds") : tc.getTickerIntervalSeconds());
                 s.setTrendFilterEma(sc.hasPath("trendFilterEma") ? sc.getInt("trendFilterEma") : 0);
+                s.setBbWidthMult(sc.hasPath("bbWidthMult") ? sc.getDouble("bbWidthMult") : 0.0);
                 tc.getSymbolConfigs().put(sym, s);
             }
         }

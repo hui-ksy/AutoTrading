@@ -33,6 +33,8 @@ public class BollingerBandReversionStrategy implements TradingStrategy {
     private final double atrSlMult;
     private final double atrTpMult;
     private final int    trendFilterEma;
+    private final double bbWidthMultiplier; // 0 = disabled; block entry if width > avg * mult
+    private final int    widthLookback;     // rolling window for avg BB width (candles)
 
     /** application.conf 기반 실거래/페이퍼 트레이딩용 생성자 */
     public BollingerBandReversionStrategy(TradingConfig config) {
@@ -46,7 +48,9 @@ public class BollingerBandReversionStrategy implements TradingStrategy {
         this.atrPeriod     = config.getAtrPeriod() > 0 ? config.getAtrPeriod() : 14;
         this.atrSlMult     = config.getAtrSlMultiplier() > 0 ? config.getAtrSlMultiplier() : 1.5;
         this.atrTpMult     = config.getAtrTpMultiplier() > 0 ? config.getAtrTpMultiplier() : 3.0;
-        this.trendFilterEma = 0;
+        this.trendFilterEma    = 0;
+        this.bbWidthMultiplier = 0;
+        this.widthLookback     = 20;
     }
 
     /** 파라미터 스윕용 생성자 (trendFilterEma=0, 필터 비활성) */
@@ -69,9 +73,31 @@ public class BollingerBandReversionStrategy implements TradingStrategy {
         this.rsiExitLong    = 55.0;
         this.rsiExitShort   = 45.0;
         this.atrPeriod      = 14;
-        this.atrSlMult      = atrSlMult;
-        this.atrTpMult      = atrTpMult;
-        this.trendFilterEma = trendFilterEma;
+        this.atrSlMult         = atrSlMult;
+        this.atrTpMult         = atrTpMult;
+        this.trendFilterEma    = trendFilterEma;
+        this.bbWidthMultiplier = 0;
+        this.widthLookback     = 20;
+    }
+
+    /** BB 폭 필터 스윕용 생성자 (bbWidthMultiplier > 0 시 과확장 진입 차단) */
+    public BollingerBandReversionStrategy(int bbPeriod, double bbStdDev,
+                                          double rsiOversold, double rsiOverbought,
+                                          double atrSlMult, double atrTpMult,
+                                          double bbWidthMultiplier, int widthLookback) {
+        this.bbPeriod          = bbPeriod;
+        this.bbStdDev          = bbStdDev;
+        this.rsiPeriod         = 14;
+        this.rsiOversold       = rsiOversold;
+        this.rsiOverbought     = rsiOverbought;
+        this.rsiExitLong       = 55.0;
+        this.rsiExitShort      = 45.0;
+        this.atrPeriod         = 14;
+        this.atrSlMult         = atrSlMult;
+        this.atrTpMult         = atrTpMult;
+        this.trendFilterEma    = 0;
+        this.bbWidthMultiplier = bbWidthMultiplier;
+        this.widthLookback     = widthLookback;
     }
 
     private static String fmt(double v) {
@@ -115,6 +141,16 @@ public class BollingerBandReversionStrategy implements TradingStrategy {
             emaValue = emaList.get(emaList.size() - 1);
         }
 
+        // ── BB 폭 필터 (추세장/폭등폭락 진입 차단) ──────────────────
+        if (bbWidthMultiplier > 0) {
+            double currentWidth = (bb.getUpperBand() - bb.getLowerBand()) / bb.getMiddleBand();
+            double avgWidth = computeAvgBBWidth(candles);
+            if (avgWidth > 0 && currentWidth > avgWidth * bbWidthMultiplier) {
+                return hold(String.format("BB 과확장 차단 | width=%.4f avg=%.4f (%.1f×)",
+                    currentWidth, avgWidth, currentWidth / avgWidth));
+            }
+        }
+
         // ── Long 진입: BB 하단 이탈 + RSI 과매도 ────────────────────
         if (close < bb.getLowerBand() && rsi < rsiOversold) {
             if (trendFilterEma > 0 && close < emaValue)
@@ -149,6 +185,25 @@ public class BollingerBandReversionStrategy implements TradingStrategy {
 
         return hold(String.format("조건 미충족 | RSI=%.1f (기준: <%.0f/>%.0f) | Close=%s | BB[%s~%s] | ATR=%s",
             rsi, rsiOversold, rsiOverbought, fmt(close), fmt(bb.getLowerBand()), fmt(bb.getUpperBand()), fmt(atr)));
+    }
+
+    private double computeAvgBBWidth(List<Candle> candles) {
+        int n = candles.size();
+        if (n < bbPeriod + widthLookback + 1) return 0;
+        double total = 0;
+        for (int i = n - 1 - widthLookback; i < n - 1; i++) {
+            double sma = 0;
+            for (int j = i - bbPeriod + 1; j <= i; j++) sma += candles.get(j).getClose();
+            sma /= bbPeriod;
+            if (sma == 0) continue;
+            double var = 0;
+            for (int j = i - bbPeriod + 1; j <= i; j++) {
+                double d = candles.get(j).getClose() - sma;
+                var += d * d;
+            }
+            total += 2.0 * bbStdDev * Math.sqrt(var / bbPeriod) / sma;
+        }
+        return total / widthLookback;
     }
 
     private Signal hold(String reason) {

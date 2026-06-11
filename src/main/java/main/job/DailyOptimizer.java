@@ -61,6 +61,12 @@ public class DailyOptimizer {
         log.info("DailyOptimizer 즉시 실행 요청 ({})", symbol);
     }
 
+    /** /backtest 명령어: 단순 보고만 하고 제안/적용 없음 */
+    public void triggerBacktest(String symbol) {
+        scheduler.submit(() -> runBacktestReport(symbol));
+        log.info("백테스트 리포트 요청: {}", symbol);
+    }
+
     /** 더 이상 대기 중인 제안이 없으므로 항상 null 반환 */
     public String handleReply(String text) {
         return null;
@@ -118,6 +124,23 @@ public class DailyOptimizer {
         }
 
         telegram.sendRawMessage(buildResultMessage(applied, skipped));
+    }
+
+    private void runBacktestReport(String symbol) {
+        log.info("백테스트 스윕 시작: {}", symbol);
+        telegram.sendRawMessage(String.format("⏳ <b>%s 백테스트 중...</b>\n잠시 기다려 주세요.", symbol));
+        try {
+            List<OptimizationProposal> top5 = BacktestRunner.runSweepForOptimizer(symbol, CANDLE_COUNT)
+                .stream()
+                .filter(p -> p.returnPct() > 0)
+                .sorted(Comparator.comparingDouble(OptimizationProposal::returnPct).reversed())
+                .limit(5)
+                .toList();
+            telegram.sendRawMessage(ReportFormatter.buildBacktestReport(symbol, top5));
+        } catch (Exception e) {
+            log.error("{} 백테스트 중 오류", symbol, e);
+            telegram.sendRawMessage("⚠️ " + symbol + " 백테스트 오류: " + e.getMessage());
+        }
     }
 
     private String buildResultMessage(Map<String, OptimizationProposal> applied,

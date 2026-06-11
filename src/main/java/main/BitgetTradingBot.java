@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import main.bitget.BitgetFuturesApiClient;
 import main.bitget.PaperTradingClient;
 import main.bitget.TradeClient;
+import main.job.CoinAdder;
 import main.job.DailyOptimizer;
 import main.job.TelegramNotifier;
 import main.job.WindowsPowerManager;
@@ -46,6 +47,7 @@ public class BitgetTradingBot {
 
     private static PaperTradingClient globalPaperClient;
     private static DailyOptimizer dailyOptimizer;
+    private static CoinAdder coinAdder;
 
     public static void main(String[] args) {
         log.info("===========================================");
@@ -141,6 +143,16 @@ public class BitgetTradingBot {
                     if (dailyOptimizer != null) dailyOptimizer.triggerNow(sym);
                     return "⏳ " + sym + " 파라미터 최적화를 시작합니다. 잠시 후 결과가 전송됩니다.";
                 }
+                if (command.startsWith("/backtest ")) {
+                    String sym = resolveSymbol(command.substring("/backtest ".length()));
+                    if (dailyOptimizer != null) dailyOptimizer.triggerBacktest(sym);
+                    return "⏳ " + sym + " 백테스트를 시작합니다. 잠시 후 결과가 전송됩니다.";
+                }
+                if (command.startsWith("/add ")) {
+                    String sym = resolveSymbol(command.substring("/add ".length()));
+                    if (coinAdder != null) coinAdder.triggerAdd(sym);
+                    return "⏳ " + sym + " 추가를 시작합니다. 백테스트 완료 후 자동으로 봇이 시작됩니다.";
+                }
 
                 String optimizerReply = dailyOptimizer != null ? dailyOptimizer.handleReply(command) : null;
                 if (optimizerReply != null) return optimizerReply;
@@ -149,6 +161,7 @@ public class BitgetTradingBot {
             });
             telegram.sendStartupMessage();
             dailyOptimizer = new DailyOptimizer(config, telegram, autoTraders);
+            coinAdder = new CoinAdder(config, telegram, BitgetTradingBot::addTraderInternal);
 
             if (config.getMode() == TradingMode.PAPER) {
                 BitgetFuturesApiClient futuresApiClientForMarketData = new BitgetFuturesApiClient(
@@ -199,6 +212,7 @@ public class BitgetTradingBot {
                 }
                 autoTraders.forEach(AutoTrader::stop);
                 if (dailyOptimizer != null) dailyOptimizer.shutdown();
+                if (coinAdder != null) coinAdder.shutdown();
                 WindowsPowerManager.allowSleep();
                 if (telegram != null) {
                     telegram.shutdown();
@@ -589,6 +603,8 @@ public class BitgetTradingBot {
                 "/holdtime off - 최대 보유 시간 비활성화\n" +
                 "/optimize - 전체 코인 파라미터 최적화\n" +
                 "/optimize [코인] - 특정 코인만 최적화 (예: /optimize pepe)\n" +
+                "/backtest [코인] - 백테스트 결과 조회 (예: /backtest sol)\n" +
+                "/add [코인] - 새 코인 추가 및 봇 시작 (예: /add link)\n" +
                 "/help - 명령어 목록 표시";
     }
 }

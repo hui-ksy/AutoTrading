@@ -90,6 +90,8 @@ src/main/java/main/
 | `/holdtime off` | 최대 보유 시간 비활성화 |
 | `/optimize` | 전체 코인 파라미터 최적화 |
 | `/optimize [코인]` | 특정 코인만 최적화 (예: `/optimize pepe`) |
+| `/backtest [코인]` | 백테스트 결과 조회 — 제안/적용 없음 (예: `/backtest sol`) |
+| `/add [코인]` | 새 코인 추가: 백테스트 → 최적 파라미터 → config 업데이트 → 봇 시작 |
 | `/help` | 명령어 목록 표시 |
 
 **심볼 입력**: 대소문자 무관, `usdt` 생략 가능 (예: `xrp` → `XRPUSDT`)

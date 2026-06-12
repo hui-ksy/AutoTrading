@@ -201,24 +201,24 @@ public class TradingConfig {
             Config symbolsBlock = config.getConfig("symbols");
             for (Map.Entry<String, ConfigValue> entry : symbolsBlock.root().entrySet()) {
                 String sym = entry.getKey();
-                Config sc = symbolsBlock.getConfig(sym);
+                Config symbolBlock = symbolsBlock.getConfig(sym);
                 SymbolConfig s = new SymbolConfig();
                 s.setSymbol(sym);
                 s.setStrategyType(StrategyType.BOLLINGER_BAND_REVERSION);
-                s.setTimeframe(sc.hasPath("timeframe") ? sc.getString("timeframe") : "15m");
-                s.setLeverage(sc.hasPath("leverage") ? sc.getInt("leverage") : tc.getLeverage());
-                s.setCandleLimit(sc.hasPath("candleLimit") ? sc.getInt("candleLimit") : tc.getCandleLimit());
-                s.setBbPeriod(sc.hasPath("bbPeriod") ? sc.getInt("bbPeriod") : tc.getBollingerBandsPeriod());
-                s.setBbStdDev(sc.hasPath("bbStdDev") ? sc.getDouble("bbStdDev") : tc.getBollingerBandsStdDev());
-                s.setRsiPeriod(sc.hasPath("rsiPeriod") ? sc.getInt("rsiPeriod") : tc.getBollingerBandsRsiPeriod());
-                s.setRsiOversold(sc.hasPath("rsiOversold") ? sc.getInt("rsiOversold") : (int) tc.getBollingerBandsRsiOversold());
-                s.setRsiOverbought(sc.hasPath("rsiOverbought") ? sc.getInt("rsiOverbought") : (int) tc.getBollingerBandsRsiOverbought());
-                s.setSlMult(sc.hasPath("slMult") ? sc.getDouble("slMult") : tc.getAtrSlMultiplier());
-                s.setTpMult(sc.hasPath("tpMult") ? sc.getDouble("tpMult") : tc.getAtrTpMultiplier());
-                s.setCandleIntervalSeconds(sc.hasPath("candleIntervalSeconds") ? sc.getLong("candleIntervalSeconds") : tc.getCandleIntervalSeconds());
-                s.setTickerIntervalSeconds(sc.hasPath("tickerIntervalSeconds") ? sc.getLong("tickerIntervalSeconds") : tc.getTickerIntervalSeconds());
-                s.setTrendFilterEma(sc.hasPath("trendFilterEma") ? sc.getInt("trendFilterEma") : 0);
-                s.setBbWidthMult(sc.hasPath("bbWidthMult") ? sc.getDouble("bbWidthMult") : 0.0);
+                s.setTimeframe(symbolBlock.hasPath("timeframe") ? symbolBlock.getString("timeframe") : "15m");
+                s.setLeverage(symbolBlock.hasPath("leverage") ? symbolBlock.getInt("leverage") : tc.getLeverage());
+                s.setCandleLimit(symbolBlock.hasPath("candleLimit") ? symbolBlock.getInt("candleLimit") : tc.getCandleLimit());
+                s.setBbPeriod(symbolBlock.hasPath("bbPeriod") ? symbolBlock.getInt("bbPeriod") : tc.getBollingerBandsPeriod());
+                s.setBbStdDev(symbolBlock.hasPath("bbStdDev") ? symbolBlock.getDouble("bbStdDev") : tc.getBollingerBandsStdDev());
+                s.setRsiPeriod(symbolBlock.hasPath("rsiPeriod") ? symbolBlock.getInt("rsiPeriod") : tc.getBollingerBandsRsiPeriod());
+                s.setRsiOversold(symbolBlock.hasPath("rsiOversold") ? symbolBlock.getInt("rsiOversold") : (int) tc.getBollingerBandsRsiOversold());
+                s.setRsiOverbought(symbolBlock.hasPath("rsiOverbought") ? symbolBlock.getInt("rsiOverbought") : (int) tc.getBollingerBandsRsiOverbought());
+                s.setSlMult(symbolBlock.hasPath("slMult") ? symbolBlock.getDouble("slMult") : tc.getAtrSlMultiplier());
+                s.setTpMult(symbolBlock.hasPath("tpMult") ? symbolBlock.getDouble("tpMult") : tc.getAtrTpMultiplier());
+                s.setCandleIntervalSeconds(symbolBlock.hasPath("candleIntervalSeconds") ? symbolBlock.getLong("candleIntervalSeconds") : tc.getCandleIntervalSeconds());
+                s.setTickerIntervalSeconds(symbolBlock.hasPath("tickerIntervalSeconds") ? symbolBlock.getLong("tickerIntervalSeconds") : tc.getTickerIntervalSeconds());
+                s.setTrendFilterEma(symbolBlock.hasPath("trendFilterEma") ? symbolBlock.getInt("trendFilterEma") : 0);
+                s.setBbWidthMult(symbolBlock.hasPath("bbWidthMult") ? symbolBlock.getDouble("bbWidthMult") : 0.0);
                 tc.getSymbolConfigs().put(sym, s);
             }
         }

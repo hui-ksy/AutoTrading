@@ -22,23 +22,23 @@ public class SymbolConfig {
     private double bbWidthMult;
 
     public static SymbolConfig defaults(String symbol) {
-        SymbolConfig sc = new SymbolConfig();
-        sc.symbol        = symbol;
-        sc.strategyType  = StrategyType.BOLLINGER_BAND_REVERSION;
-        sc.timeframe     = "15m";
-        sc.leverage      = 10;
-        sc.candleLimit   = 100;
-        sc.bbPeriod      = 17;
-        sc.bbStdDev      = 2.6;
-        sc.rsiPeriod     = 14;
-        sc.rsiOversold   = 30;
-        sc.rsiOverbought = 70;
-        sc.slMult                = 3.5;
-        sc.tpMult                = 5.0;
-        sc.candleIntervalSeconds = 15;
-        sc.tickerIntervalSeconds = 1;
-        sc.trendFilterEma        = 0;
-        sc.bbWidthMult           = 0.0;
-        return sc;
+        SymbolConfig result = new SymbolConfig();
+        result.symbol        = symbol;
+        result.strategyType  = StrategyType.BOLLINGER_BAND_REVERSION;
+        result.timeframe     = "15m";
+        result.leverage      = 10;
+        result.candleLimit   = 100;
+        result.bbPeriod      = 17;
+        result.bbStdDev      = 2.6;
+        result.rsiPeriod     = 14;
+        result.rsiOversold   = 30;
+        result.rsiOverbought = 70;
+        result.slMult                = 3.5;
+        result.tpMult                = 5.0;
+        result.candleIntervalSeconds = 15;
+        result.tickerIntervalSeconds = 1;
+        result.trendFilterEma        = 0;
+        result.bbWidthMult           = 0.0;
+        return result;
     }
 }

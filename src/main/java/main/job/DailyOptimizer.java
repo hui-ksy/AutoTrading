@@ -99,12 +99,12 @@ public class DailyOptimizer {
                 }
 
                 OptimizationProposal top = best.get();
-                SymbolConfig sc = config.getSymbolConfigs().computeIfAbsent(sym, SymbolConfig::defaults);
-                boolean unchanged = sc.getRsiOversold() == top.rsiOS()
-                    && sc.getRsiOverbought() == top.rsiOB()
-                    && Math.abs(sc.getSlMult() - top.slMult()) < 0.01
-                    && Math.abs(sc.getTpMult() - top.tpMult()) < 0.01
-                    && Math.abs(sc.getBbWidthMult() - top.bbWidthMult()) < 0.01;
+                SymbolConfig symbolConfig = config.getSymbolConfigs().computeIfAbsent(sym, SymbolConfig::defaults);
+                boolean unchanged = symbolConfig.getRsiOversold() == top.rsiOS()
+                    && symbolConfig.getRsiOverbought() == top.rsiOB()
+                    && Math.abs(symbolConfig.getSlMult() - top.slMult()) < 0.01
+                    && Math.abs(symbolConfig.getTpMult() - top.tpMult()) < 0.01
+                    && Math.abs(symbolConfig.getBbWidthMult() - top.bbWidthMult()) < 0.01;
 
                 if (unchanged) {
                     skipped.put(sym, "현재 값과 동일");
@@ -172,12 +172,12 @@ public class DailyOptimizer {
     }
 
     private void applyProposal(String symbol, OptimizationProposal p) {
-        SymbolConfig sc = config.getSymbolConfigs().computeIfAbsent(symbol, SymbolConfig::defaults);
-        sc.setRsiOversold(p.rsiOS());
-        sc.setRsiOverbought(p.rsiOB());
-        sc.setSlMult(p.slMult());
-        sc.setTpMult(p.tpMult());
-        sc.setBbWidthMult(p.bbWidthMult());
+        SymbolConfig symbolConfig = config.getSymbolConfigs().computeIfAbsent(symbol, SymbolConfig::defaults);
+        symbolConfig.setRsiOversold(p.rsiOS());
+        symbolConfig.setRsiOverbought(p.rsiOB());
+        symbolConfig.setSlMult(p.slMult());
+        symbolConfig.setTpMult(p.tpMult());
+        symbolConfig.setBbWidthMult(p.bbWidthMult());
 
         log.info("{} 파라미터 적용: rsiOS={}, rsiOB={}, SL={}, TP={}, BBW={}",
             symbol, p.rsiOS(), p.rsiOB(), p.slMult(), p.tpMult(), p.bbWidthMult());

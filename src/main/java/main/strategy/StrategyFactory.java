@@ -8,14 +8,14 @@ import main.model.TradingConfig;
 @Slf4j
 public class StrategyFactory {
 
-    public static TradingStrategy createStrategy(TradingConfig config, SymbolConfig sc) {
-        log.info("전략 생성: {} ({})", sc.getStrategyType(), sc.getSymbol());
-        if (sc.getStrategyType() == StrategyType.BOLLINGER_BAND_REVERSION) {
+    public static TradingStrategy createStrategy(TradingConfig config, SymbolConfig symbolConfig) {
+        log.info("전략 생성: {} ({})", symbolConfig.getStrategyType(), symbolConfig.getSymbol());
+        if (symbolConfig.getStrategyType() == StrategyType.BOLLINGER_BAND_REVERSION) {
             return new BollingerBandReversionStrategy(
-                sc.getBbPeriod(), sc.getBbStdDev(),
-                sc.getRsiOversold(), sc.getRsiOverbought(),
-                sc.getSlMult(), sc.getTpMult(),
-                sc.getBbWidthMult(), 20);
+                symbolConfig.getBbPeriod(), symbolConfig.getBbStdDev(),
+                symbolConfig.getRsiOversold(), symbolConfig.getRsiOverbought(),
+                symbolConfig.getSlMult(), symbolConfig.getTpMult(),
+                symbolConfig.getBbWidthMult(), 20);
         }
         return createStrategy(config);
     }

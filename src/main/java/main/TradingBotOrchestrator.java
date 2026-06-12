@@ -66,9 +66,9 @@ class TradingBotOrchestrator {
       initialBalance = ((BitgetFuturesApiClient) apiClient).getAccountEquity("USDT");
       recorder.setInitialBalance(initialBalance);
     }
-    SymbolConfig sc =
+    SymbolConfig symbolConfig =
         config.getSymbolConfigs().computeIfAbsent(pair, SymbolConfig::defaults);
-    TradingStrategy strategy = StrategyFactory.createStrategy(config, sc);
+    TradingStrategy strategy = StrategyFactory.createStrategy(config, symbolConfig);
     AutoTrader trader =
         new AutoTrader(
             apiClient,

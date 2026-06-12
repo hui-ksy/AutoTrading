@@ -86,8 +86,8 @@ public class AutoTrader {
     }
     
     public void reloadStrategy() {
-        main.model.SymbolConfig sc = config.getSymbolConfigs().computeIfAbsent(pair, main.model.SymbolConfig::defaults);
-        this.strategy = StrategyFactory.createStrategy(config, sc);
+        main.model.SymbolConfig symbolConfig = config.getSymbolConfigs().computeIfAbsent(pair, main.model.SymbolConfig::defaults);
+        this.strategy = StrategyFactory.createStrategy(config, symbolConfig);
         log.info("[{}] 전략 인스턴스 재생성 완료 (새 파라미터 적용)", pair);
     }
 

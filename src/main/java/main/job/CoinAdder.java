@@ -90,13 +90,13 @@ public class CoinAdder {
     }
 
     private void updateInMemoryConfig(String symbol, OptimizationProposal best) {
-        SymbolConfig sc = SymbolConfig.defaults(symbol);
-        sc.setRsiOversold(best.rsiOS());
-        sc.setRsiOverbought(best.rsiOB());
-        sc.setSlMult(best.slMult());
-        sc.setTpMult(best.tpMult());
-        sc.setBbWidthMult(best.bbWidthMult());
-        config.getSymbolConfigs().put(symbol, sc);
+        SymbolConfig symbolConfig = SymbolConfig.defaults(symbol);
+        symbolConfig.setRsiOversold(best.rsiOS());
+        symbolConfig.setRsiOverbought(best.rsiOB());
+        symbolConfig.setSlMult(best.slMult());
+        symbolConfig.setTpMult(best.tpMult());
+        symbolConfig.setBbWidthMult(best.bbWidthMult());
+        config.getSymbolConfigs().put(symbol, symbolConfig);
 
         List<String> pairs = config.getTradingPairs();
         if (pairs != null && !pairs.contains(symbol)) {

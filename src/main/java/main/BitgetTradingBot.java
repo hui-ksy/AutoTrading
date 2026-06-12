@@ -6,20 +6,20 @@ import main.bitget.PaperTradingClient;
 import main.bitget.TradeClient;
 import main.job.CoinAdder;
 import main.job.DailyOptimizer;
+import main.job.TelegramCommandHandler;
 import main.job.TelegramNotifier;
 import main.job.WindowsPowerManager;
+import main.account.LiveAccountBalanceProvider;
 import main.model.*;
 import main.strategy.StrategyFactory;
 import main.strategy.TradingStrategy;
+import main.util.PriceFormatter;
 
-import java.io.IOException;
 import java.net.URI;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -37,13 +37,12 @@ public class BitgetTradingBot {
     private static TradingConfig config;
     private static double initialBalance;
 
-    public static volatile double sharedTotalEquity = 0.0;
-    public static volatile double sharedAvailableBalance = 0.0;
+    private static final LiveAccountBalanceProvider balanceProvider = new LiveAccountBalanceProvider();
 
     private static List<AutoTrader> autoTraders = new ArrayList<>();
-    private static volatile boolean botRunning = true;
-    private static volatile boolean gracefulShutdown = false;
-    private static volatile boolean directionFilterEnabled = true;
+    private static final AtomicBoolean botRunning = new AtomicBoolean(true);
+    private static final AtomicBoolean gracefulShutdown = new AtomicBoolean(false);
+    private static final AtomicBoolean directionFilterEnabled = new AtomicBoolean(true);
 
     private static PaperTradingClient globalPaperClient;
     private static DailyOptimizer dailyOptimizer;
@@ -63,108 +62,18 @@ public class BitgetTradingBot {
                     config.isTelegramEnabled()
             );
 
-            telegram.setCommandHandler(command -> {
-                if (!botRunning && !command.equals("/start") && !command.equals("/help")) {
-                    return "봇이 현재 정지 상태입니다. /start 로 재시작하거나 /help 를 입력하세요.";
-                }
-
-                if (command.equals("/stop")) {
-                    gracefulShutdown = true;
-                    stopAllTraders();
-                    return "🚨 모든 봇이 정지되었습니다. /start 로 재시작하세요.";
-                }
-                if (command.equals("/start")) {
-                    startAllTraders();
-                    return "✅ 모든 봇이 재시작되었습니다.";
-                }
-                if (command.equals("/balance")) {
-                    return String.format("💰 <b>계좌 잔고 현황</b>\n\n<b>총 자산:</b> $%.2f\n<b>가용 잔고:</b> $%.2f",
-                            sharedTotalEquity, sharedAvailableBalance);
-                }
-                if (command.equals("/close all")) {
-                    closeAllPositions();
-                    return "⚠️ 모든 포지션 시장가 청산 명령을 실행했습니다.";
-                }
-                if (command.startsWith("/close ")) {
-                    String symbol = resolveSymbol(command.substring("/close ".length()));
-                    return closeSpecificPosition(symbol);
-                }
-                if (command.equals("/direction on")) {
-                    directionFilterEnabled = true;
-                    return "✅ 방향성 필터가 활성화되었습니다.";
-                }
-                if (command.equals("/direction off")) {
-                    directionFilterEnabled = false;
-                    return "🛑 방향성 필터가 비활성화되었습니다.";
-                }
-                if (command.startsWith("/percent ")) {
-                    try {
-                        double pct = Double.parseDouble(command.substring("/percent ".length()).trim());
-                        if (pct <= 0 || pct > 100) return "❌ 1~100 사이의 값을 입력하세요.";
-                        config.setOrderPercentOfBalance(pct);
-                        updateConfigPercent(pct);
-                        return String.format("✅ 진입 비율이 <b>%.1f%%</b>로 변경되었습니다.", pct);
-                    } catch (NumberFormatException e) {
-                        return "❌ 잘못된 숫자 형식입니다. 예: /percent 10";
-                    }
-                }
-                if (command.equals("/help")) return getHelpMessage();
-
-                if (command.equals("/holdtime off")) {
-                    config.setMaxHoldEnabled(false);
-                    updateConfigHoldEnabled(false);
-                    return "🛑 최대 보유 시간 제한이 <b>비활성화</b>되었습니다.";
-                }
-                if (command.equals("/holdtime on")) {
-                    int hours = config.getMaxHoldHours() > 0 ? config.getMaxHoldHours() : 12;
-                    config.setMaxHoldEnabled(true);
-                    config.setMaxHoldHours(hours);
-                    updateConfigHoldEnabled(true);
-                    updateConfigHoldTime(hours);
-                    return String.format("✅ 최대 보유 시간이 <b>%d시간</b>으로 활성화되었습니다.", hours);
-                }
-                if (command.startsWith("/holdtime ")) {
-                    try {
-                        int hours = Integer.parseInt(command.substring("/holdtime ".length()).trim());
-                        if (hours <= 0) return "❌ 1 이상의 값을 입력하세요.";
-                        config.setMaxHoldEnabled(true);
-                        config.setMaxHoldHours(hours);
-                        updateConfigHoldEnabled(true);
-                        updateConfigHoldTime(hours);
-                        return String.format("✅ 최대 보유 시간이 <b>%d시간</b>으로 변경되었습니다.", hours);
-                    } catch (NumberFormatException e) {
-                        return "❌ 잘못된 숫자 형식입니다. 예: /holdtime 24";
-                    }
-                }
-
-                if (command.equals("/optimize")) {
-                    if (dailyOptimizer != null) dailyOptimizer.triggerNow();
-                    return "⏳ 전체 코인 파라미터 최적화를 시작합니다. 잠시 후 결과가 전송됩니다.";
-                }
-                if (command.startsWith("/optimize ")) {
-                    String sym = resolveSymbol(command.substring("/optimize ".length()));
-                    if (dailyOptimizer != null) dailyOptimizer.triggerNow(sym);
-                    return "⏳ " + sym + " 파라미터 최적화를 시작합니다. 잠시 후 결과가 전송됩니다.";
-                }
-                if (command.startsWith("/backtest ")) {
-                    String sym = resolveSymbol(command.substring("/backtest ".length()));
-                    if (dailyOptimizer != null) dailyOptimizer.triggerBacktest(sym);
-                    return "⏳ " + sym + " 백테스트를 시작합니다. 잠시 후 결과가 전송됩니다.";
-                }
-                if (command.startsWith("/add ")) {
-                    String sym = resolveSymbol(command.substring("/add ".length()));
-                    if (coinAdder != null) coinAdder.triggerAdd(sym);
-                    return "⏳ " + sym + " 추가를 시작합니다. 백테스트 완료 후 자동으로 봇이 시작됩니다.";
-                }
-
-                String optimizerReply = dailyOptimizer != null ? dailyOptimizer.handleReply(command) : null;
-                if (optimizerReply != null) return optimizerReply;
-
-                return "알 수 없는 명령어입니다. /help 를 입력하세요.";
-            });
+            TelegramCommandHandler cmdHandler = new TelegramCommandHandler(
+                    botRunning, gracefulShutdown, directionFilterEnabled,
+                    config, balanceProvider, autoTraders,
+                    () -> { botRunning.set(false); autoTraders.forEach(AutoTrader::stopBot); },
+                    () -> { botRunning.set(true); autoTraders.forEach(AutoTrader::startBot); }
+            );
+            telegram.setCommandHandler(cmdHandler);
             telegram.sendStartupMessage();
             dailyOptimizer = new DailyOptimizer(config, telegram, autoTraders);
             coinAdder = new CoinAdder(config, telegram, BitgetTradingBot::addTraderInternal);
+            cmdHandler.setDailyOptimizer(dailyOptimizer);
+            cmdHandler.setCoinAdder(coinAdder);
 
             if (config.getMode() == TradingMode.PAPER) {
                 BitgetFuturesApiClient futuresApiClientForMarketData = new BitgetFuturesApiClient(
@@ -210,7 +119,7 @@ public class BitgetTradingBot {
 
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 log.info("트레이딩봇 종료 신호 수신...");
-                if (telegram != null && !gracefulShutdown) {
+                if (telegram != null && !gracefulShutdown.get()) {
                     telegram.notifyCrash("예기치 않은 종료 (재시작 대기 중)");
                 }
                 autoTraders.forEach(AutoTrader::stop);
@@ -232,7 +141,7 @@ public class BitgetTradingBot {
     }
 
     private static boolean isDirectionBlocked(String thisPair, Signal.Action action) {
-        if (!directionFilterEnabled) return false;
+        if (!directionFilterEnabled.get()) return false;
         for (AutoTrader trader : autoTraders) {
             if (trader.getPair().equalsIgnoreCase(thisPair)) continue;
             Position pos = trader.getCurrentPosition();
@@ -252,14 +161,8 @@ public class BitgetTradingBot {
         main.model.SymbolConfig sc = config.getSymbolConfigs().computeIfAbsent(pair, main.model.SymbolConfig::defaults);
         TradingStrategy strategy = StrategyFactory.createStrategy(config, sc);
         AutoTrader trader = new AutoTrader(apiClient, globalPaperClient, strategy, config, pair, telegram,
-                BitgetTradingBot::recordAndReportTrade, BitgetTradingBot::isDirectionBlocked);
+                BitgetTradingBot::recordAndReportTrade, BitgetTradingBot::isDirectionBlocked, balanceProvider);
         autoTraders.add(trader);
-    }
-
-    private static String resolveSymbol(String input) {
-        String upper = input.trim().toUpperCase();
-        if (!upper.endsWith("USDT")) upper = upper + "USDT";
-        return upper;
     }
 
     public static synchronized void recordAndReportTrade(Position closedPosition, double exitPrice, double pnlFromApi, double feeFromApi) {
@@ -310,8 +213,9 @@ public class BitgetTradingBot {
         double winRate = (totalTrades > 0) ? (double) wins / totalTrades * 100 : 0;
 
         // LIVE 모드에서는 펀딩비 등 비거래 비용 반영을 위해 거래소 실제 잔고 사용
-        double currentBalance = (config.getMode() == TradingMode.LIVE && sharedTotalEquity > 0)
-                ? sharedTotalEquity
+        double equity = balanceProvider.getTotalEquity();
+        double currentBalance = (config.getMode() == TradingMode.LIVE && equity > 0)
+                ? equity
                 : initialBalance + totalProfit;
         double totalReturnPercent = (initialBalance > 0) ? (currentBalance / initialBalance - 1) * 100 : 0;
 
@@ -377,8 +281,7 @@ public class BitgetTradingBot {
                 TradeClient client = traders.get(0).getApiClient();
                 if (client instanceof BitgetFuturesApiClient) {
                     BitgetFuturesApiClient futuresClient = (BitgetFuturesApiClient) client;
-                    sharedTotalEquity = futuresClient.getAccountEquity("USDT");
-                    sharedAvailableBalance = futuresClient.getAvailableBalance("USDT");
+                    balanceProvider.update(futuresClient.getAccountEquity("USDT"), futuresClient.getAvailableBalance("USDT"));
                 }
             } catch (Exception e) {
                 log.error("잔고 조회 중 오류 발생", e);
@@ -454,7 +357,7 @@ public class BitgetTradingBot {
                     }
                     pnlPercent *= config.getLeverage();
 
-                    currentPriceStr = formatPrice(currentPrice);
+                    currentPriceStr = PriceFormatter.format(currentPrice);
                     pnlStr = String.format("%.2f%%", pnlPercent);
                 } else {
                     currentPriceStr = "조회 실패";
@@ -464,7 +367,7 @@ public class BitgetTradingBot {
                 String logMsg = String.format("[%s] %s | 진입가: %s | 현재가: %s | 미실현 손익: %s",
                         position.getSymbol(),
                         position.getSide(),
-                        formatPrice(position.getEntryPrice()),
+                        PriceFormatter.format(position.getEntryPrice()),
                         currentPriceStr,
                         pnlStr);
 
@@ -477,7 +380,7 @@ public class BitgetTradingBot {
                                     "진입: $%s ➡️ 현재: $%s\n" +
                                     "%s <b>%s</b>",
                             sideEmoji, position.getSymbol(), position.getSide(),
-                            formatPrice(position.getEntryPrice()), currentPriceStr,
+                            PriceFormatter.format(position.getEntryPrice()), currentPriceStr,
                             pnlEmoji, pnlStr);
                     telegramSummaries.add(telegramMsg);
                 }
@@ -500,89 +403,6 @@ public class BitgetTradingBot {
         }, 5, 5, TimeUnit.MINUTES);
     }
 
-    private static String formatPrice(double price) {
-        if (price == 0) return "0.00";
-        double abs = Math.abs(price);
-        if (abs < 0.0001) return String.format("%.8f", price);
-        if (abs < 0.01)   return String.format("%.6f", price);
-        if (abs < 1.0)    return String.format("%.4f", price);
-        return String.format("%,.4f", price);
-    }
-
-    private static void stopAllTraders() {
-        botRunning = false;
-        for (AutoTrader trader : autoTraders) {
-            trader.stopBot();
-        }
-    }
-
-    private static void startAllTraders() {
-        botRunning = true;
-        for (AutoTrader trader : autoTraders) {
-            trader.startBot();
-        }
-    }
-
-    private static String closeAllPositions() {
-        for (AutoTrader trader : autoTraders) {
-            if (trader.getCurrentPosition() != null) {
-                trader.closePosition("강제 청산");
-            }
-        }
-        return "모든 포지션에 대한 시장가 청산 명령을 보냈습니다.";
-    }
-
-    private static String closeSpecificPosition(String symbol) {
-        Optional<AutoTrader> targetTrader = autoTraders.stream()
-                .filter(t -> t.getPair().equalsIgnoreCase(symbol))
-                .findFirst();
-
-        if (targetTrader.isPresent() && targetTrader.get().getCurrentPosition() != null) {
-            targetTrader.get().closePosition("강제 청산 (텔레그램)");
-            return String.format("<b>%s</b> 포지션 시장가 청산 명령을 보냈습니다.", symbol);
-        } else if (targetTrader.isPresent() && targetTrader.get().getCurrentPosition() == null) {
-            return String.format("<b>%s</b> 포지션이 현재 없습니다.", symbol);
-        } else {
-            return String.format("<b>%s</b> 페어를 찾을 수 없습니다.", symbol);
-        }
-    }
-
-    private static void updateConfigPercent(double pct) {
-        try {
-            var path = Paths.get("src/main/resources/application.conf");
-            String content = Files.readString(path, StandardCharsets.UTF_8);
-            content = content.replaceAll("orderPercentOfBalance\\s*=\\s*[0-9.]+",
-                    String.format("orderPercentOfBalance = %.1f", pct));
-            Files.writeString(path, content, StandardCharsets.UTF_8);
-            log.info("application.conf orderPercentOfBalance → {}% 업데이트 완료", pct);
-        } catch (IOException e) {
-            log.error("application.conf 업데이트 실패: {}", e.getMessage());
-        }
-    }
-
-    private static void updateConfigHoldTime(int hours) {
-        try {
-            var path = Paths.get("src/main/resources/application.conf");
-            String content = Files.readString(path, StandardCharsets.UTF_8);
-            content = content.replaceAll("maxHoldHours\\s*=\\s*[0-9]+", "maxHoldHours = " + hours);
-            Files.writeString(path, content, StandardCharsets.UTF_8);
-            log.info("application.conf maxHoldHours → {} 업데이트 완료", hours);
-        } catch (IOException e) {
-            log.error("application.conf 업데이트 실패: {}", e.getMessage());
-        }
-    }
-
-    private static void updateConfigHoldEnabled(boolean enabled) {
-        try {
-            var path = Paths.get("src/main/resources/application.conf");
-            String content = Files.readString(path, StandardCharsets.UTF_8);
-            content = content.replaceAll("maxHoldEnabled\\s*=\\s*(true|false)", "maxHoldEnabled = " + enabled);
-            Files.writeString(path, content, StandardCharsets.UTF_8);
-            log.info("application.conf maxHoldEnabled → {} 업데이트 완료", enabled);
-        } catch (IOException e) {
-            log.error("application.conf 업데이트 실패: {}", e.getMessage());
-        }
-    }
 
     private static void startHeartbeatThread(String pingUrl) {
         if (pingUrl == null || pingUrl.isBlank()) return;
@@ -600,26 +420,5 @@ public class BitgetTradingBot {
         }, 0, 5, TimeUnit.MINUTES);
 
         log.info("Healthcheck 하트비트 시작 (5분 간격)");
-    }
-
-    private static String getHelpMessage() {
-        return "<b>사용 가능한 명령어:</b>\n" +
-                "/balance - 계좌 잔고 현황\n" +
-                "/stop - 모든 봇 정지\n" +
-                "/stop [심볼] - 특정 봇 정지 (예: /stop xrp)\n" +
-                "/start - 모든 봇 재시작\n" +
-                "/start [심볼] - 특정 봇 재시작 (예: /start xrp)\n" +
-                "/close all - 모든 포지션 청산\n" +
-                "/close [심볼] - 특정 포지션 청산 (예: /close xrp)\n" +
-                "/direction on/off - 방향성 필터 활성화/비활성화\n" +
-                "/percent [N] - 진입 비율 변경 (예: /percent 10)\n" +
-                "/holdtime [N] - 최대 보유 시간 변경 (예: /holdtime 12)\n" +
-                "/holdtime on - 최대 보유 시간 활성화\n" +
-                "/holdtime off - 최대 보유 시간 비활성화\n" +
-                "/optimize - 전체 코인 파라미터 최적화\n" +
-                "/optimize [코인] - 특정 코인만 최적화 (예: /optimize pepe)\n" +
-                "/backtest [코인] - 백테스트 결과 조회 (예: /backtest sol)\n" +
-                "/add [코인] - 새 코인 추가 및 봇 시작 (예: /add link)\n" +
-                "/help - 명령어 목록 표시";
     }
 }

@@ -10,6 +10,7 @@ import main.model.Position;
 import main.model.SymbolConfig;
 import main.model.TradingConfig;
 import main.model.TradingMode;
+import main.util.RetryPolicy;
 
 import java.util.List;
 
@@ -112,35 +113,21 @@ class TpSlCalculator {
 
         BitgetFuturesApiClient futuresClient = (BitgetFuturesApiClient) apiClient;
 
-        boolean slSuccess = false;
-        for (int i = 0; i < 3; i++) {
-            slSuccess = futuresClient.placeTpSlOrder(
-                    position.getSymbol(), position.getSide(), position.getQuantity(),
-                    position.getStopLoss(), "loss_plan"
-            );
-            if (slSuccess) {
-                break;
-            }
-            log.warn("[{}] 거래소 손절 주문(SL) 설정 실패 (시도: {}). 1초 후 재시도...", pair, i + 1);
-            try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
-        }
+        boolean slSuccess = RetryPolicy.withRetry(
+                () -> futuresClient.placeTpSlOrder(
+                        position.getSymbol(), position.getSide(), position.getQuantity(),
+                        position.getStopLoss(), "loss_plan"),
+                3, 1000, "[" + pair + "] 거래소 손절 주문(SL) 설정");
         if (!slSuccess) {
             log.error("[{}] 거래소 손절 주문(SL) 설정 최종 실패!", pair);
             telegram.notifyError(String.format("🚨 [%s] SL 주문 설정 최종 실패! 수동 확인 및 대응 필요!", pair));
         }
 
-        boolean tpSuccess = false;
-        for (int i = 0; i < 3; i++) {
-            tpSuccess = futuresClient.placeTpSlOrder(
-                    position.getSymbol(), position.getSide(), position.getQuantity(),
-                    position.getTakeProfit(), "profit_plan"
-            );
-            if (tpSuccess) {
-                break;
-            }
-            log.warn("[{}] 거래소 익절 주문(TP) 설정 실패 (시도: {}). 1초 후 재시도...", pair, i + 1);
-            try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
-        }
+        boolean tpSuccess = RetryPolicy.withRetry(
+                () -> futuresClient.placeTpSlOrder(
+                        position.getSymbol(), position.getSide(), position.getQuantity(),
+                        position.getTakeProfit(), "profit_plan"),
+                3, 1000, "[" + pair + "] 거래소 익절 주문(TP) 설정");
         if (!tpSuccess) {
             log.error("[{}] 거래소 익절 주문(TP) 설정 최종 실패!", pair);
             telegram.notifyError(String.format("🚨 [%s] TP 주문 설정 최종 실패! 수동 확인 및 대응 필요!", pair));

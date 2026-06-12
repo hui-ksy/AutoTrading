@@ -111,23 +111,26 @@ public class BitgetTradingBot {
                 if (command.equals("/help")) return getHelpMessage();
 
                 if (command.equals("/holdtime off")) {
-                    config.setMaxHoldHours(0);
-                    updateConfigHoldTime(0);
+                    config.setMaxHoldEnabled(false);
+                    updateConfigHoldEnabled(false);
                     return "🛑 최대 보유 시간 제한이 <b>비활성화</b>되었습니다.";
                 }
                 if (command.equals("/holdtime on")) {
-                    int hours = 12;
+                    int hours = config.getMaxHoldHours() > 0 ? config.getMaxHoldHours() : 12;
+                    config.setMaxHoldEnabled(true);
                     config.setMaxHoldHours(hours);
+                    updateConfigHoldEnabled(true);
                     updateConfigHoldTime(hours);
                     return String.format("✅ 최대 보유 시간이 <b>%d시간</b>으로 활성화되었습니다.", hours);
                 }
                 if (command.startsWith("/holdtime ")) {
                     try {
                         int hours = Integer.parseInt(command.substring("/holdtime ".length()).trim());
-                        if (hours < 0) return "❌ 0 이상의 값을 입력하세요. (0=비활성화)";
+                        if (hours <= 0) return "❌ 1 이상의 값을 입력하세요.";
+                        config.setMaxHoldEnabled(true);
                         config.setMaxHoldHours(hours);
+                        updateConfigHoldEnabled(true);
                         updateConfigHoldTime(hours);
-                        if (hours == 0) return "🛑 최대 보유 시간 제한이 <b>비활성화</b>되었습니다.";
                         return String.format("✅ 최대 보유 시간이 <b>%d시간</b>으로 변경되었습니다.", hours);
                     } catch (NumberFormatException e) {
                         return "❌ 잘못된 숫자 형식입니다. 예: /holdtime 24";
@@ -564,6 +567,18 @@ public class BitgetTradingBot {
             content = content.replaceAll("maxHoldHours\\s*=\\s*[0-9]+", "maxHoldHours = " + hours);
             Files.writeString(path, content, StandardCharsets.UTF_8);
             log.info("application.conf maxHoldHours → {} 업데이트 완료", hours);
+        } catch (IOException e) {
+            log.error("application.conf 업데이트 실패: {}", e.getMessage());
+        }
+    }
+
+    private static void updateConfigHoldEnabled(boolean enabled) {
+        try {
+            var path = Paths.get("src/main/resources/application.conf");
+            String content = Files.readString(path, StandardCharsets.UTF_8);
+            content = content.replaceAll("maxHoldEnabled\\s*=\\s*(true|false)", "maxHoldEnabled = " + enabled);
+            Files.writeString(path, content, StandardCharsets.UTF_8);
+            log.info("application.conf maxHoldEnabled → {} 업데이트 완료", enabled);
         } catch (IOException e) {
             log.error("application.conf 업데이트 실패: {}", e.getMessage());
         }

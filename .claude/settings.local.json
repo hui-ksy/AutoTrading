@@ -3,7 +3,16 @@
     "allow": [
       "Bash(./gradlew backtest:*)",
       "Bash(./gradlew compileJava)",
-      "Bash(./gradlew build *)"
+      "Bash(./gradlew build *)",
+      "Bash(where git *)",
+      "Bash(python /tmp/analyze_trading.py)",
+      "Bash(chmod +x /tmp/extract_fields.sh)",
+      "Bash(/tmp/extract_fields.sh)",
+      "Bash(chmod +x /tmp/stats_analysis.sh)",
+      "Bash(/tmp/stats_analysis.sh)",
+      "Bash(./gradlew compileJava *)",
+      "Bash(./gradlew tasks *)",
+      "Bash(./gradlew package *)"
     ]
   },
   "enabledMcpjsonServers": [

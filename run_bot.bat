@@ -11,5 +11,5 @@ if exist "%~dp0build\package\AutoTrading\AutoTrading.exe" (
     call gradlew.bat run >> "%LOG_DIR%\bot_%date:~0,4%%date:~5,2%%date:~8,2%.log" 2>&1
 )
 echo [%date% %time%] Bot stopped. Restarting in 10 seconds...
-timeout /t 10 /nobreak
+ping -n 11 127.0.0.1 > nul
 goto loop

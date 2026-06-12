@@ -7,11 +7,9 @@ import main.model.OptimizationProposal;
 import main.model.SymbolConfig;
 import main.model.TradingConfig;
 
+import main.util.ConfigFileUpdater;
+
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -22,8 +20,7 @@ import java.util.concurrent.*;
 @Slf4j
 public class DailyOptimizer {
 
-    private static final int    CANDLE_COUNT = 2920;
-    private static final String CONFIG_PATH  = "src/main/resources/application.conf";
+    private static final int CANDLE_COUNT = 2920;
 
     private final TradingConfig    config;
     private final TelegramNotifier telegram;
@@ -190,16 +187,13 @@ public class DailyOptimizer {
     }
 
     private void updateConfigFile(String symbol, OptimizationProposal p) {
-        Path path = Paths.get(CONFIG_PATH);
         try {
-            String content = Files.readString(path, StandardCharsets.UTF_8);
             String newLine = String.format(
                 "  %s { bbPeriod = 17, bbStdDev = 2.6, rsiOversold = %d, rsiOverbought = %d, slMult = %.1f, tpMult = %.1f, bbWidthMult = %.1f }",
                 symbol, p.rsiOS(), p.rsiOB(), p.slMult(), p.tpMult(), p.bbWidthMult());
-            String before = content;
-            content = content.replaceAll("  " + symbol + "\\s+\\{[^}]+\\}", newLine);
-            if (content.equals(before)) {
-                if (before.contains(newLine)) {
+            boolean changed = ConfigFileUpdater.replace("  " + symbol + "\\s+\\{[^}]+\\}", newLine);
+            if (!changed) {
+                if (ConfigFileUpdater.contains(newLine)) {
                     log.info("application.conf {} 설정 유지 (변경 없음)", symbol);
                 } else {
                     log.warn("application.conf {} 라인 업데이트 실패: 패턴 매칭 오류", symbol);
@@ -207,7 +201,6 @@ public class DailyOptimizer {
                 }
                 return;
             }
-            Files.writeString(path, content, StandardCharsets.UTF_8);
             log.info("application.conf {} 라인 업데이트 완료", symbol);
         } catch (IOException e) {
             log.error("application.conf 업데이트 실패 ({}): {}", symbol, e.getMessage());

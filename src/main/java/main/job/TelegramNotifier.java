@@ -15,6 +15,7 @@ import java.text.DecimalFormat;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import main.util.PriceFormatter;
 
 @Slf4j
 public class TelegramNotifier {
@@ -26,20 +27,10 @@ public class TelegramNotifier {
     private final TelegramBot bot;
     private final String chatId;
     private final boolean enabled;
-    private final DecimalFormat priceFormat = new DecimalFormat("#,##0.0000");
     private final DecimalFormat usdtFormat = new DecimalFormat("#,##0.00");
     private final DecimalFormat percentFormat = new DecimalFormat("0.00");
     private final DateTimeFormatter timeFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    private String formatPrice(double price) {
-        if (price == 0) return "0.00";
-        double abs = Math.abs(price);
-        if (abs < 0.0001) return String.format("%.8f", price);
-        if (abs < 0.01)   return String.format("%.6f", price);
-        if (abs < 1.0)    return String.format("%.4f", price);
-        return priceFormat.format(price);
-    }
-    
     private CommandHandler commandHandler;
 
     public TelegramNotifier(String botToken, String chatId, boolean enabled) {
@@ -122,11 +113,11 @@ public class TelegramNotifier {
                 position.getSymbol(),
                 sideText,
                 position.getQuantity(),
-                formatPrice(position.getEntryPrice()),
+                PriceFormatter.format(position.getEntryPrice()),
                 usdtFormat.format(marginUsed),
                 config.getLeverage(),
-                formatPrice(position.getStopLoss()),
-                formatPrice(position.getTakeProfit())
+                PriceFormatter.format(position.getStopLoss()),
+                PriceFormatter.format(position.getTakeProfit())
         );
         sendMessage(text);
     }
@@ -150,7 +141,7 @@ public class TelegramNotifier {
                 position.getSymbol(),
                 sideText,
                 position.getQuantity(),
-                formatPrice(position.getEntryPrice()),
+                PriceFormatter.format(position.getEntryPrice()),
                 usdtFormat.format(marginUsed),
                 config.getLeverage()
         );
@@ -181,7 +172,7 @@ public class TelegramNotifier {
                 tradeEmoji, resultText, trade.getSymbol(), sideText,
                 trade.getProfit() >= 0 ? "+" : "", trade.getProfit(), trade.getProfitPercent(),
                 trade.getFee(),
-                formatPrice(trade.getEntryPrice()), formatPrice(trade.getExitPrice())
+                PriceFormatter.format(trade.getEntryPrice()), PriceFormatter.format(trade.getExitPrice())
         );
 
         String profitEmoji = stats.getTotalProfit() >= 0 ? "📈" : "📉";

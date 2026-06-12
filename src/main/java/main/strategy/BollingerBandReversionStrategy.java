@@ -5,6 +5,7 @@ import main.model.Candle;
 import main.model.Position;
 import main.model.Signal;
 import main.model.TradingConfig;
+import main.util.PriceFormatter;
 
 import java.util.List;
 
@@ -100,15 +101,6 @@ public class BollingerBandReversionStrategy implements TradingStrategy {
         this.widthLookback     = widthLookback;
     }
 
-    private static String fmt(double v) {
-        double abs = Math.abs(v);
-        if (abs == 0)     return "0";
-        if (abs < 0.0001) return String.format("%.8f", v);
-        if (abs < 0.01)   return String.format("%.6f", v);
-        if (abs < 1.0)    return String.format("%.4f", v);
-        return String.format("%.4f", v);
-    }
-
     @Override
     public Signal generateSignal(List<Candle> candles, String pair, Position position) {
         int minNeeded = Math.max(bbPeriod, rsiPeriod + 1) + 5;
@@ -130,7 +122,7 @@ public class BollingerBandReversionStrategy implements TradingStrategy {
         // ── 포지션 보유 중: SL/TP는 Backtester 처리, 여기서는 HOLD ──────
         if (position != null) {
             return hold(String.format("포지션 유지 | RSI=%.1f | Close=%s | BB[%s~%s]",
-                rsi, fmt(close), fmt(bb.getLowerBand()), fmt(bb.getUpperBand())));
+                rsi, PriceFormatter.format(close), PriceFormatter.format(bb.getLowerBand()), PriceFormatter.format(bb.getUpperBand())));
         }
 
         // ── EMA 추세 필터 (trendFilterEma > 0 일 때만 활성) ─────────
@@ -154,7 +146,7 @@ public class BollingerBandReversionStrategy implements TradingStrategy {
         // ── Long 진입: BB 하단 이탈 + RSI 과매도 ────────────────────
         if (close < bb.getLowerBand() && rsi < rsiOversold) {
             if (trendFilterEma > 0 && close < emaValue)
-                return hold("EMA필터: Long 차단 (하락추세) | EMA" + trendFilterEma + "=" + fmt(emaValue));
+                return hold("EMA필터: Long 차단 (하락추세) | EMA" + trendFilterEma + "=" + PriceFormatter.format(emaValue));
             double sl = close - atr * atrSlMult;
             double tp = close + atr * atrTpMult;
             return Signal.builder()
@@ -163,14 +155,14 @@ public class BollingerBandReversionStrategy implements TradingStrategy {
                 .stopLoss(sl)
                 .takeProfit(tp)
                 .reason(String.format("BB Long | RSI=%.1f (< %.0f) | Close=%s < BB하단=%s | ATR=%s",
-                    rsi, rsiOversold, fmt(close), fmt(bb.getLowerBand()), fmt(atr)))
+                    rsi, rsiOversold, PriceFormatter.format(close), PriceFormatter.format(bb.getLowerBand()), PriceFormatter.format(atr)))
                 .build();
         }
 
         // ── Short 진입: BB 상단 이탈 + RSI 과매수 ───────────────────
         if (close > bb.getUpperBand() && rsi > rsiOverbought) {
             if (trendFilterEma > 0 && close > emaValue)
-                return hold("EMA필터: Short 차단 (상승추세) | EMA" + trendFilterEma + "=" + fmt(emaValue));
+                return hold("EMA필터: Short 차단 (상승추세) | EMA" + trendFilterEma + "=" + PriceFormatter.format(emaValue));
             double sl = close + atr * atrSlMult;
             double tp = close - atr * atrTpMult;
             return Signal.builder()
@@ -179,12 +171,12 @@ public class BollingerBandReversionStrategy implements TradingStrategy {
                 .stopLoss(sl)
                 .takeProfit(tp)
                 .reason(String.format("BB Short | RSI=%.1f (> %.0f) | Close=%s > BB상단=%s | ATR=%s",
-                    rsi, rsiOverbought, fmt(close), fmt(bb.getUpperBand()), fmt(atr)))
+                    rsi, rsiOverbought, PriceFormatter.format(close), PriceFormatter.format(bb.getUpperBand()), PriceFormatter.format(atr)))
                 .build();
         }
 
         return hold(String.format("조건 미충족 | RSI=%.1f (기준: <%.0f/>%.0f) | Close=%s | BB[%s~%s] | ATR=%s",
-            rsi, rsiOversold, rsiOverbought, fmt(close), fmt(bb.getLowerBand()), fmt(bb.getUpperBand()), fmt(atr)));
+            rsi, rsiOversold, rsiOverbought, PriceFormatter.format(close), PriceFormatter.format(bb.getLowerBand()), PriceFormatter.format(bb.getUpperBand()), PriceFormatter.format(atr)));
     }
 
     private double computeAvgBBWidth(List<Candle> candles) {

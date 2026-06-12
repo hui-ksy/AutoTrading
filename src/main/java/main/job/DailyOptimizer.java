@@ -188,8 +188,7 @@ public class DailyOptimizer {
 
     private void updateConfigFile(String symbol, OptimizationProposal p) {
         try {
-            String newLine = String.format(
-                "  %s { bbPeriod = 17, bbStdDev = 2.6, rsiOversold = %d, rsiOverbought = %d, slMult = %.1f, tpMult = %.1f, bbWidthMult = %.1f }",
+            String newLine = ConfigFileUpdater.formatSymbolLine(
                 symbol, p.rsiOS(), p.rsiOB(), p.slMult(), p.tpMult(), p.bbWidthMult());
             boolean changed = ConfigFileUpdater.replace("  " + symbol + "\\s+\\{[^}]+\\}", newLine);
             if (!changed) {

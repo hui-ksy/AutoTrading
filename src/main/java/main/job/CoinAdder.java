@@ -7,24 +7,18 @@ import main.model.SymbolConfig;
 import main.model.TradingConfig;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import main.util.ConfigFileUpdater;
 
 /** /add 명령어 처리: 백테스트 스윕 → 최적 파라미터 선택 → config 업데이트 → 봇 시작. */
 @Slf4j
 public class CoinAdder {
 
-    private static final int    CANDLE_COUNT = 2920;
-    private static final String CONFIG_PATH  = "src/main/resources/application.conf";
+    private static final int CANDLE_COUNT = 2920;
 
     private final TradingConfig    config;
     private final TelegramNotifier telegram;
@@ -106,34 +100,20 @@ public class CoinAdder {
     }
 
     private void updateConfigFile(String symbol, OptimizationProposal best) {
-        Path path = Paths.get(CONFIG_PATH);
         try {
-            String content = Files.readString(path, StandardCharsets.UTF_8);
-
-            // 1. symbols 블록에 심볼 라인 추가
-            String symLine = String.format(
-                "  %s { bbPeriod = 17, bbStdDev = 2.6, rsiOversold = %d, rsiOverbought = %d, slMult = %.1f, tpMult = %.1f, bbWidthMult = %.1f }",
+            String symLine = ConfigFileUpdater.formatSymbolLine(
                 symbol, best.rsiOS(), best.rsiOB(), best.slMult(), best.tpMult(), best.bbWidthMult());
-            Matcher symMatcher = Pattern.compile("(?s)(symbols\\s*\\{.*?)(\\n\\})").matcher(content);
-            if (symMatcher.find()) {
-                content = symMatcher.replaceFirst("$1\n" + symLine + "$2");
-            } else {
+
+            if (!ConfigFileUpdater.insertIntoSymbolsBlock(symLine)) {
                 log.warn("symbols 블록을 찾지 못했습니다 — {} 라인 수동 추가 필요", symbol);
                 telegram.sendRawMessage("⚠️ symbols 블록 수정 실패 — " + symbol + " 수동 추가 필요");
             }
 
-            // 2. pairs 배열에 심볼 추가
-            Matcher pairsMatcher = Pattern.compile("(pairs\\s*=\\s*\\[[^\\]]*)(])").matcher(content);
-            if (pairsMatcher.find()) {
-                String existing = pairsMatcher.group(1);
-                String sep = existing.trim().endsWith("[") ? "" : ", ";
-                content = pairsMatcher.replaceFirst("$1" + sep + "\"" + symbol + "\"$2");
-            } else {
+            if (!ConfigFileUpdater.addToPairsArray(symbol)) {
                 log.warn("pairs 배열을 찾지 못했습니다 — {} 수동 추가 필요", symbol);
                 telegram.sendRawMessage("⚠️ pairs 배열 수정 실패 — " + symbol + " 수동 추가 필요");
             }
 
-            Files.writeString(path, content, StandardCharsets.UTF_8);
             log.info("application.conf {} 추가 완료", symbol);
         } catch (IOException e) {
             log.error("application.conf 업데이트 실패 ({}): {}", symbol, e.getMessage());

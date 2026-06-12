@@ -5,15 +5,12 @@ import lombok.extern.slf4j.Slf4j;
 import main.bitget.BitgetFuturesApiClient;
 import main.bitget.PaperTradingClient;
 import main.bitget.TradeClient;
-import main.indicator.TechnicalIndicators;
+import main.account.AccountBalanceProvider;
 import main.job.TelegramNotifier;
 import main.model.*;
 import main.strategy.StrategyFactory;
 import main.strategy.TradingStrategy;
 
-import java.time.Instant;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executors;
@@ -42,27 +39,21 @@ public class AutoTrader {
     private final String pair;
     private final TelegramNotifier telegram;
     private final ScheduledExecutorService scheduler;
-    private final TradeHandler tradeHandler;
 
-    @Getter
-    private Position currentPosition;
     private volatile boolean running;
-    private volatile boolean isEntering;
-    private volatile Signal entrySignal;
-    private long enteringStartTime = 0;
     private int analysisCount = 0;
-    
-    private final double fixedStopLossPercent;
-    private final double fixedTakeProfitPercent;
+
     private final DirectionChecker directionChecker;
     private final SymbolConfig symbolConfig;
+    private final AccountBalanceProvider balanceProvider;
 
-    private static final DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault());
+    private final PositionExecutor positionExecutor;
+    private final TpSlCalculator tpSlCalculator;
 
     public AutoTrader(TradeClient apiClient, PaperTradingClient paperClient,
                       TradingStrategy strategy, TradingConfig config,
                       String pair, TelegramNotifier telegram, TradeHandler tradeHandler,
-                      DirectionChecker directionChecker) {
+                      DirectionChecker directionChecker, AccountBalanceProvider balanceProvider) {
         this.apiClient = apiClient;
         this.paperClient = paperClient;
         this.strategy = strategy;
@@ -70,13 +61,18 @@ public class AutoTrader {
         this.pair = pair;
         this.telegram = telegram;
         this.scheduler = Executors.newSingleThreadScheduledExecutor();
-        this.isEntering = false;
 
-        this.fixedStopLossPercent = config.getStopLossPercent() / 100.0;
-        this.fixedTakeProfitPercent = config.getTakeProfitPercent() / 100.0;
-        this.tradeHandler = tradeHandler;
         this.directionChecker = directionChecker;
         this.symbolConfig = config.getSymbolConfigs().computeIfAbsent(pair, SymbolConfig::defaults);
+        this.balanceProvider = balanceProvider;
+
+        double fixedStopLossPercent = config.getStopLossPercent() / 100.0;
+        double fixedTakeProfitPercent = config.getTakeProfitPercent() / 100.0;
+
+        this.tpSlCalculator = new TpSlCalculator(apiClient, config, symbolConfig, pair, telegram,
+                fixedStopLossPercent, fixedTakeProfitPercent);
+        this.positionExecutor = new PositionExecutor(apiClient, paperClient, config, pair, telegram,
+                tradeHandler, balanceProvider, tpSlCalculator);
     }
 
     public void start() {
@@ -112,35 +108,38 @@ public class AutoTrader {
     }
     
     public void closePosition(String reason) {
-        if (currentPosition != null) {
-            double currentPrice = getCurrentPrice();
+        if (positionExecutor.hasPosition()) {
+            double currentPrice = positionExecutor.getCurrentPrice();
             if (currentPrice > 0) {
-                executeExitPosition(reason, currentPrice);
+                positionExecutor.executeExitPosition(reason, currentPrice);
             } else {
                 log.warn("[{}] 현재가 조회 실패로 강제 청산 불가", pair);
             }
         }
     }
 
-    private double getCurrentPrice() {
-        if (apiClient != null) return apiClient.getTickerPrice(pair);
-        if (paperClient != null) return paperClient.getTickerPrice(pair);
-        return 0.0;
+    public Position getCurrentPosition() {
+        return positionExecutor.getCurrentPosition();
+    }
+
+    public void handleExternalClose() {
+        positionExecutor.handleExternalClose();
     }
 
     private void tickerLoop() {
-        if (!running || !hasPosition()) return;
+        if (!running || !positionExecutor.hasPosition()) return;
 
         try {
-            double currentPrice = getCurrentPrice();
+            double currentPrice = positionExecutor.getCurrentPrice();
             if (currentPrice > 0) {
+                Position currentPosition = positionExecutor.getCurrentPosition();
                 int maxHoldHours = config.getMaxHoldHours();
                 if (config.isMaxHoldEnabled() && maxHoldHours > 0 && currentPosition.getEntryTimestamp() > 0) {
                     long holdMs = System.currentTimeMillis() - currentPosition.getEntryTimestamp();
                     if (holdMs > (long) maxHoldHours * 3_600_000L) {
                         log.warn("[{}] 최대 보유 시간({}h) 초과 — 포지션 강제 청산", pair, maxHoldHours);
                         telegram.notifyError(String.format("⏰ [%s] 최대 보유 %dh 초과 — 자동 청산", pair, maxHoldHours));
-                        executeExitPosition("최대 보유 시간 초과", currentPrice);
+                        positionExecutor.executeExitPosition("최대 보유 시간 초과", currentPrice);
                         return;
                     }
                 }
@@ -152,82 +151,64 @@ public class AutoTrader {
     }
 
     private void candleLoop() {
-        if (!running || isEntering) return;
-        
+        if (!running || positionExecutor.isEntering()) return;
+
         try {
-            if (!hasPosition()) {
-                double totalEquity;
-                double availableBalance;
-                
-                if (config.getMode() == TradingMode.PAPER) {
-                    totalEquity = paperClient.getTotalEquity();
-                    availableBalance = totalEquity;
-                } else {
-                    totalEquity = BitgetTradingBot.sharedTotalEquity;
-                    availableBalance = BitgetTradingBot.sharedAvailableBalance;
-                }
-                
-                if (availableBalance > 0) {
-                    double requiredMargin = totalEquity * (config.getOrderPercentOfBalance() / 100.0);
-                    if (availableBalance < 5.0 || availableBalance < requiredMargin) {
-                        return; 
-                    }
-                }
+            if (!positionExecutor.hasPosition() && !positionExecutor.hasSufficientBalance()) {
+                return;
             }
 
-            if (isEntering) {
-                if (System.currentTimeMillis() - enteringStartTime > 180000) {
+            if (positionExecutor.isEntering()) {
+                if (System.currentTimeMillis() - positionExecutor.getEnteringStartTime() > 180000) {
                     log.warn("[{}] 진입 대기 시간 초과! 강제로 상태를 초기화합니다.", pair);
-                    isEntering = false;
-                    entrySignal = null;
+                    positionExecutor.resetEntering();
                 } else {
-                    if (config.getMode() == TradingMode.LIVE) confirmPositionEntered();
+                    if (config.getMode() == TradingMode.LIVE) positionExecutor.confirmPositionEntered();
                     return;
                 }
             }
-            
-            if (currentPosition != null && config.getMode() == TradingMode.LIVE && !apiClient.hasPosition(pair)) {
-                handleExternalClose();
+
+            if (positionExecutor.hasPosition() && config.getMode() == TradingMode.LIVE && !apiClient.hasPosition(pair)) {
+                positionExecutor.handleExternalClose();
                 return;
             }
 
             List<Candle> candles = getCandles(config.getTimeframe(), config.getCandleLimit());
             if (candles == null || candles.isEmpty()) return;
-            
+
             long lastCandleTimestamp = candles.get(candles.size() - 1).getTimestamp();
             long currentTime = System.currentTimeMillis();
             long diffMinutes = (currentTime - lastCandleTimestamp) / (60 * 1000);
-            
+
             if (diffMinutes > 10) {
                 log.warn("[{}] 마지막 캔들 데이터가 너무 오래되었습니다 ({}분 전). 전략 분석을 건너뜁니다.", pair, diffMinutes);
                 return;
             }
 
-            Signal signal = strategy.generateSignal(candles, pair, currentPosition);
+            Signal signal = strategy.generateSignal(candles, pair, positionExecutor.getCurrentPosition());
             analysisCount++;
 
             if (signal.getAction() == Signal.Action.HOLD) {
                 log.info("[{}] #{} HOLD | {}", pair, analysisCount, signal.getReason());
-                // 30분마다 (120사이클 × 15초) 현재 지표 상태를 텔레그램으로 전송
                 if (analysisCount % 120 == 1) {
                     telegram.notifyPeriodicStatus(pair, analysisCount, signal.getReason());
                 }
             } else if (signal.getAction() == Signal.Action.EXIT) {
                 double currentPrice = (apiClient != null) ? apiClient.getTickerPrice(pair) : candles.get(candles.size() - 1).getClose();
                 log.info("[{}] #{} EXIT 신호 | {}", pair, analysisCount, signal.getReason());
-                executeExitPosition(signal.getReason(), currentPrice);
+                positionExecutor.executeExitPosition(signal.getReason(), currentPrice);
             } else if (signal.getAction() == Signal.Action.BUY || signal.getAction() == Signal.Action.SHORT) {
                 log.info("[{}] #{} ★ {} 신호 | {}", pair, analysisCount, signal.getAction(), signal.getReason());
                 if (directionChecker != null && directionChecker.isBlocked(pair, signal.getAction())) {
                     log.info("[{}] 방향성 필터: 다른 코인 반대 포지션으로 진입 차단 ({})", pair, signal.getAction());
                 } else {
                     telegram.notifySignalDetected(pair, signal.getAction().toString(), signal.getReason());
-                    if (!hasPosition()) {
-                        executeEnterPosition(signal, candles);
+                    if (!positionExecutor.hasPosition()) {
+                        positionExecutor.executeEnterPosition(signal, candles);
                     }
                 }
             }
-            
+
         } catch (Exception e) {
             log.error("캔들 루프 오류 [{}]", pair, e);
         }
@@ -237,26 +218,29 @@ public class AutoTrader {
         if (config.getMode() == TradingMode.LIVE && apiClient instanceof BitgetFuturesApiClient) {
             BitgetFuturesApiClient futuresClient = (BitgetFuturesApiClient) apiClient;
             Position existingPosition = futuresClient.getSinglePosition(pair);
-            
+
             if (existingPosition != null) {
                 log.info("[{}] 기존 {} 포지션 발견! 관리를 시작합니다.", pair, existingPosition.getSide());
-                this.currentPosition = existingPosition;
-                if (this.currentPosition.getEntryTimestamp() == 0) {
-                    this.currentPosition.setEntryTimestamp(System.currentTimeMillis());
+                positionExecutor.setCurrentPosition(existingPosition);
+                if (existingPosition.getEntryTimestamp() == 0) {
+                    existingPosition.setEntryTimestamp(System.currentTimeMillis());
                     log.info("[{}] 포지션 진입 시간 미확인 — 현재 시간으로 초기화 (maxHoldHours 카운트 시작)", pair);
                 }
-                
-                double marginUsed = (this.currentPosition.getEntryPrice() * this.currentPosition.getQuantity()) / config.getLeverage();
+
+                double marginUsed = (existingPosition.getEntryPrice() * existingPosition.getQuantity()) / config.getLeverage();
                 log.info("[{}] 인수 증거금: ${}", pair, String.format("%.2f", marginUsed));
-                
+
                 log.info("[{}] 기존 TP/SL 주문을 초기화하고 새로 설정합니다.", pair);
                 futuresClient.cancelAllPlanOrders(pair);
 
                 try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
 
-                setAtrTpSl(existingPosition);
-                placeExchangeOrders(existingPosition);
-                
+                List<Candle> candles = getCandles(config.getTimeframe(), config.getCandleLimit());
+                if (candles != null && !candles.isEmpty()) {
+                    tpSlCalculator.setAtrTpSl(existingPosition, candles);
+                }
+                tpSlCalculator.placeExchangeOrders(existingPosition);
+
                 telegram.notifyPositionTakeover(existingPosition, config);
             } else {
                 log.info("[{}] 현재 보유 중인 포지션이 없습니다.", pair);
@@ -264,365 +248,41 @@ public class AutoTrader {
         }
     }
 
-    private void executeEnterPosition(Signal signal, List<Candle> candles) {
-        double quantity = calculateOrderQuantity(signal.getEntryPrice());
-        if (quantity <= 0) return;
-
-        double entryPrice = (apiClient != null) ? apiClient.getTickerPrice(pair) : signal.getEntryPrice();
-        if (entryPrice <= 0) {
-            log.warn("[{}] 현재가 조회 실패. 진입을 취소합니다.", pair);
-            return;
-        }
-
-        Candle lastCandle = candles.get(candles.size() - 1);
-        String candleTime = timeFormatter.format(Instant.ofEpochMilli(lastCandle.getTimestamp()));
-        
-        log.info("[시장가 진입 실행] {} {} {} @ ${} (기준 캔들 시간: {})", 
-                signal.getAction(), String.format("%.4f", quantity), pair, 
-                String.format("%.4f", entryPrice), candleTime);
-        
-        this.entrySignal = signal;
-        this.enteringStartTime = System.currentTimeMillis();
-
-        if (config.getMode() == TradingMode.PAPER) {
-            OrderResult result = paperClient.openPosition(pair, signal.getAction().toString(), quantity, entryPrice, config.getLeverage());
-            if (result != null) {
-                currentPosition = new Position();
-                currentPosition.setSymbol(pair);
-                currentPosition.setSide(signal.getAction().toString());
-                currentPosition.setEntryPrice(result.getAveragePrice());
-                currentPosition.setQuantity(result.getFilledQuantity());
-                currentPosition.setEntryTimestamp(lastCandle.getTimestamp());
-
-                double marginUsed = (currentPosition.getEntryPrice() * currentPosition.getQuantity()) / config.getLeverage();
-                log.info("[{}] 진입 증거금: ${}", pair, String.format("%.2f", marginUsed));
-
-                if (signal.getStopLoss() > 0 && signal.getTakeProfit() > 0) {
-                    currentPosition.setStopLoss(signal.getStopLoss());
-                    currentPosition.setTakeProfit(signal.getTakeProfit());
-                    log.info("[{}] ATR 기반 손익절 설정 - SL: {}, TP: {}", pair,
-                            String.format("%.4f", signal.getStopLoss()),
-                            String.format("%.4f", signal.getTakeProfit()));
-                } else {
-                    setFixedTpSl(currentPosition);
-                }
-                
-                telegram.notifyEnterPosition(currentPosition, signal, config);
-                this.entrySignal = null;
-            }
-        } else { // LIVE Mode
-            OrderResult result = null;
-            double currentQuantity = quantity;
-            for (int i = 0; i < 3; i++) {
-                if (signal.getAction() == Signal.Action.BUY) {
-                    result = apiClient.marketLong(pair, currentQuantity);
-                } else {
-                    result = apiClient.marketShort(pair, currentQuantity);
-                }
-
-                if (result != null && ("filled".equals(result.getStatus()) || "new".equals(result.getStatus()))) {
-                    isEntering = true;
-                    break;
-                } else {
-                    log.warn("[{}] 주문 실패 (시도 {}/3). 수량을 절반으로 줄여 재시도합니다.", pair, i + 1);
-                    currentQuantity /= 2.0;
-                    try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
-                }
-            }
-
-            if (result == null || (!"filled".equals(result.getStatus()) && !"new".equals(result.getStatus()))) {
-                log.error("[{}] 주문 최종 실패. 진입을 취소합니다.", pair);
-                this.entrySignal = null;
-                this.isEntering = false;
-            }
-        }
-    }
-
-    private synchronized void confirmPositionEntered() {
-        log.info("[{}] 체결 상태 확인 중...", pair);
-        Position position = ((BitgetFuturesApiClient) apiClient).getSinglePosition(pair);
-
-        if (position != null) {
-            log.info("[진입 완료] {} {} @ ${}",
-                    position.getSide(), String.format("%.4f", position.getQuantity()), pair,
-                    String.format("%.4f", position.getEntryPrice()));
-            
-            this.currentPosition = position;
-            this.currentPosition.setEntryTimestamp(System.currentTimeMillis());
-            
-            double marginUsed = (this.currentPosition.getEntryPrice() * this.currentPosition.getQuantity()) / config.getLeverage();
-            log.info("[{}] 진입 증거금: ${}", pair, String.format("%.2f", marginUsed));
-            
-            if (apiClient instanceof BitgetFuturesApiClient) {
-                ((BitgetFuturesApiClient) apiClient).cancelAllPlanOrders(pair);
-                try { Thread.sleep(500); } catch (InterruptedException ignored) {}
-            }
-
-            if (this.entrySignal != null && this.entrySignal.getStopLoss() > 0 && this.entrySignal.getTakeProfit() > 0) {
-                this.currentPosition.setStopLoss(this.entrySignal.getStopLoss());
-                this.currentPosition.setTakeProfit(this.entrySignal.getTakeProfit());
-                log.info("[{}] ATR 기반 손익절 설정 - SL: {}, TP: {}", pair,
-                        String.format("%.6f", this.entrySignal.getStopLoss()),
-                        String.format("%.6f", this.entrySignal.getTakeProfit()));
-            } else {
-                setFixedTpSl(this.currentPosition);
-            }
-            placeExchangeOrders(this.currentPosition);
-            
-            telegram.notifyEnterPosition(this.currentPosition, this.entrySignal, config);
-            this.entrySignal = null;
-            this.isEntering = false;
-        }
-    }
-    
-    private void placeExchangeOrders(Position position) {
-        if (config.getMode() != TradingMode.LIVE || !(apiClient instanceof BitgetFuturesApiClient)) return;
-        
-        BitgetFuturesApiClient futuresClient = (BitgetFuturesApiClient) apiClient;
-        
-        boolean slSuccess = false;
-        for (int i = 0; i < 3; i++) {
-            slSuccess = futuresClient.placeTpSlOrder(
-                    position.getSymbol(), position.getSide(), position.getQuantity(),
-                    position.getStopLoss(), "loss_plan"
-            );
-            if (slSuccess) {
-                break;
-            }
-            log.warn("[{}] 거래소 손절 주문(SL) 설정 실패 (시도: {}). 1초 후 재시도...", pair, i + 1);
-            try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
-        }
-        if (!slSuccess) {
-            log.error("[{}] 거래소 손절 주문(SL) 설정 최종 실패!", pair);
-            telegram.notifyError(String.format("🚨 [%s] SL 주문 설정 최종 실패! 수동 확인 및 대응 필요!", pair));
-        }
-        
-        boolean tpSuccess = false;
-        for (int i = 0; i < 3; i++) {
-            tpSuccess = futuresClient.placeTpSlOrder(
-                    position.getSymbol(), position.getSide(), position.getQuantity(),
-                    position.getTakeProfit(), "profit_plan"
-            );
-            if (tpSuccess) {
-                break;
-            }
-            log.warn("[{}] 거래소 익절 주문(TP) 설정 실패 (시도: {}). 1초 후 재시도...", pair, i + 1);
-            try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
-        }
-        if (!tpSuccess) {
-            log.error("[{}] 거래소 익절 주문(TP) 설정 최종 실패!", pair);
-            telegram.notifyError(String.format("🚨 [%s] TP 주문 설정 최종 실패! 수동 확인 및 대응 필요!", pair));
-        }
-    }
-
-    private void executeExitPosition(String reason, double exitPrice) {
-        if (currentPosition == null) return;
-
-        log.info("[시장가 청산 실행] 사유: {}", reason);
-        
-        if (config.getMode() == TradingMode.PAPER) {
-            OrderResult result = paperClient.closePosition(pair, exitPrice);
-            if (result == null) {
-                log.warn("[PAPER] 페이퍼 클라이언트에서 포지션을 찾을 수 없으나, 봇 내부 포지션을 강제 청산 처리합니다.");
-            }
-            tradeHandler.handle(currentPosition, exitPrice, 0, 0);
-            currentPosition = null;
-        } else {
-            if (apiClient instanceof BitgetFuturesApiClient) {
-                BitgetFuturesApiClient futuresClient = (BitgetFuturesApiClient) apiClient;
-
-                OrderResult closeResult = futuresClient.closeEntirePosition(pair);
-                if (closeResult != null && "filled".equals(closeResult.getStatus())) {
-                    log.info("[{}] 포지션 전체 청산 완료", pair);
-                } else {
-                    log.error("[{}] 포지션 전체 청산 실패!", pair);
-                }
-
-                futuresClient.cancelAllPlanOrders(pair);
-            }
-
-            // 히스토리 API 반영 대기
-            try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
-
-            Trade closedTrade = ((BitgetFuturesApiClient) apiClient).getLatestClosedPosition(pair);
-            if (closedTrade != null) {
-                double resolvedExitPrice = closedTrade.getExitPrice() > 0
-                        ? closedTrade.getExitPrice()
-                        : apiClient.getTickerPrice(pair);
-                if (resolvedExitPrice <= 0) resolvedExitPrice = exitPrice;
-                tradeHandler.handle(currentPosition, resolvedExitPrice, closedTrade.getProfit(), closedTrade.getFee());
-            } else {
-                double currentPrice = apiClient.getTickerPrice(pair);
-                if (currentPrice <= 0) currentPrice = exitPrice;
-                log.warn("[{}] 포지션 종료 내역 조회 실패. 현재가({})로 손익을 추정합니다.", pair, currentPrice);
-                tradeHandler.handle(currentPosition, currentPrice, 0, 0);
-            }
-            currentPosition = null;
-        }
-    }
-    
-    public synchronized void handleExternalClose() {
-        if (currentPosition == null) return;
-
-        log.info("[상태 감지] {} 포지션이 외부에서 청산되었습니다. 거래 내역을 확인합니다.", pair);
-        
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-
-        Trade closedTrade = ((BitgetFuturesApiClient) apiClient).getLatestClosedPosition(pair);
-        if (closedTrade != null) {
-            double resolvedExitPrice = closedTrade.getExitPrice() > 0
-                    ? closedTrade.getExitPrice()
-                    : apiClient.getTickerPrice(pair);
-            log.info("[{}] 외부 청산 거래 내역: ExitPrice={}, PnL={}", pair, resolvedExitPrice, closedTrade.getProfit());
-            tradeHandler.handle(currentPosition, resolvedExitPrice, closedTrade.getProfit(), closedTrade.getFee());
-        } else {
-            double currentPrice = apiClient.getTickerPrice(pair);
-            if (currentPrice <= 0) {
-                log.warn("[{}] 최근 거래 내역 및 현재가 조회 모두 실패 (네트워크 오류). 손익 기록 없이 포지션만 초기화합니다.", pair);
-            } else {
-                log.warn("[{}] 최근 거래 내역 조회 실패. 현재가({})로 손익을 추정합니다.", pair, currentPrice);
-                tradeHandler.handle(currentPosition, currentPrice, 0, 0);
-            }
-        }
-        
-        if (apiClient instanceof BitgetFuturesApiClient) {
-            ((BitgetFuturesApiClient) apiClient).cancelAllPlanOrders(pair);
-        }
-        
-        currentPosition = null;
-        isEntering = false;
-    }
-
-    private void setAtrTpSl(Position position) {
-        try {
-            List<Candle> candles = getCandles(config.getTimeframe(), config.getCandleLimit());
-            if (candles != null && !candles.isEmpty()) {
-                double atr = TechnicalIndicators.calculateATR(candles, 14);
-                if (atr > 0) {
-                    boolean isLong = "BUY".equals(position.getSide());
-                    double entry = position.getEntryPrice();
-                    double sl = isLong
-                            ? entry - atr * symbolConfig.getSlMult()
-                            : entry + atr * symbolConfig.getSlMult();
-                    double tp = isLong
-                            ? entry + atr * symbolConfig.getTpMult()
-                            : entry - atr * symbolConfig.getTpMult();
-
-                    // takeover 시 현재가 위에 TP가 있어야 40830 에러 방지
-                    double currentPrice = apiClient.getTickerPrice(pair);
-                    if (currentPrice > 0) {
-                        if (isLong && tp <= currentPrice) {
-                            tp = currentPrice * 1.005 + atr * symbolConfig.getTpMult();
-                        } else if (!isLong && tp >= currentPrice) {
-                            tp = currentPrice * 0.995 - atr * symbolConfig.getTpMult();
-                        }
-                    }
-
-                    position.setStopLoss(sl);
-                    position.setTakeProfit(tp);
-                    log.info("[{}] ATR 기반 손익절 설정 - SL: {}, TP: {} (ATR={}, SLx{}, TPx{})",
-                            pair, String.format("%.6f", sl), String.format("%.6f", tp),
-                            String.format("%.6f", atr), symbolConfig.getSlMult(), symbolConfig.getTpMult());
-                    return;
-                }
-            }
-        } catch (Exception e) {
-            log.warn("[{}] ATR 기반 SL/TP 계산 실패 — 고정값 사용: {}", pair, e.getMessage());
-        }
-        setFixedTpSl(position);
-    }
-
-    private void setFixedTpSl(Position position) {
-        boolean isLong = "BUY".equals(position.getSide());
-        double entryPrice = position.getEntryPrice();
-        
-        double currentPrice = (apiClient != null) ? apiClient.getTickerPrice(pair) : entryPrice;
-        if (currentPrice <= 0) currentPrice = entryPrice;
-        
-        double stopLossPrice;
-        double takeProfitPrice;
-        
-        if (isLong) {
-            double calculatedSl = entryPrice * (1 - fixedStopLossPercent);
-            double calculatedTp = entryPrice * (1 + fixedTakeProfitPercent);
-            
-            stopLossPrice = Math.min(calculatedSl, currentPrice * 0.999);
-            takeProfitPrice = Math.max(calculatedTp, currentPrice * 1.001);
-            
-        } else {
-            double calculatedSl = entryPrice * (1 + fixedStopLossPercent);
-            double calculatedTp = entryPrice * (1 - fixedTakeProfitPercent);
-            
-            stopLossPrice = Math.max(calculatedSl, currentPrice * 1.001);
-            takeProfitPrice = Math.min(calculatedTp, currentPrice * 0.999);
-        }
-        
-        position.setStopLoss(stopLossPrice);
-        position.setTakeProfit(takeProfitPrice);
-        
-        log.info("[{}] 고정 손익절 설정 - SL: {} (-{}%), TP: {} (+{}%)", 
-                pair, String.format("%.4f", stopLossPrice), fixedStopLossPercent * 100,
-                String.format("%.4f", takeProfitPrice), fixedTakeProfitPercent * 100);
-    }
 
     private void managePosition(double currentPrice) {
-        if (!hasPosition()) return;
+        if (!positionExecutor.hasPosition()) return;
 
+        Position currentPosition = positionExecutor.getCurrentPosition();
         boolean isLong = "BUY".equals(currentPosition.getSide());
-        
+
         if (currentPosition.getStopLoss() <= 0 || currentPosition.getTakeProfit() <= 0) {
             if (config.getMode() == TradingMode.PAPER) {
                 log.warn("[{}] 손익절가가 비정상입니다. 강제 설정합니다.", pair);
-                setFixedTpSl(currentPosition);
+                tpSlCalculator.setFixedTpSl(currentPosition);
             }
         }
 
         if (config.getMode() == TradingMode.PAPER) {
             if (isLong) {
                 if (currentPrice <= currentPosition.getStopLoss()) {
-                    executeExitPosition("손절(SL) 도달", currentPrice);
+                    positionExecutor.executeExitPosition("손절(SL) 도달", currentPrice);
                     return;
                 }
                 if (currentPrice >= currentPosition.getTakeProfit()) {
-                    executeExitPosition("익절(TP) 도달", currentPrice);
+                    positionExecutor.executeExitPosition("익절(TP) 도달", currentPrice);
                     return;
                 }
-            } else { // SHORT
+            } else {
                 if (currentPrice >= currentPosition.getStopLoss()) {
-                    executeExitPosition("손절(SL) 도달", currentPrice);
+                    positionExecutor.executeExitPosition("손절(SL) 도달", currentPrice);
                     return;
                 }
                 if (currentPrice <= currentPosition.getTakeProfit()) {
-                    executeExitPosition("익절(TP) 도달", currentPrice);
+                    positionExecutor.executeExitPosition("익절(TP) 도달", currentPrice);
                     return;
                 }
             }
         }
-    }
-
-    private double calculateOrderQuantity(double price) {
-        double totalEquity = (config.getMode() == TradingMode.PAPER) ? paperClient.getTotalEquity() : BitgetTradingBot.sharedTotalEquity;
-        double availableBalance = (config.getMode() == TradingMode.PAPER) ? totalEquity : BitgetTradingBot.sharedAvailableBalance;
-        
-        if (totalEquity <= 0) return 0;
-
-        double requiredMargin = totalEquity * (config.getOrderPercentOfBalance() / 100.0);
-        if (availableBalance < requiredMargin) {
-            return 0;
-        }
-
-        double marginToUse = requiredMargin;
-        double totalOrderValue = marginToUse * config.getLeverage();
-        
-        return (totalOrderValue / price) * 0.95;
-    }
-
-    private boolean hasPosition() {
-        return this.currentPosition != null;
     }
 
     public List<Candle> getCandles(String timeframe, int limit) {

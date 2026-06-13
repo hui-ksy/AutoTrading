@@ -2,9 +2,9 @@ package main.job;
 
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import main.AutoTrader;
+import main.core.trading.AutoTrader;
 import main.account.AccountBalanceProvider;
-import main.model.TradingConfig;
+import main.model.config.TradingConfig;
 import main.util.ConfigFileUpdater;
 
 import java.io.IOException;

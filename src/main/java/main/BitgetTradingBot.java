@@ -1,18 +1,17 @@
 package main;
 
 import lombok.extern.slf4j.Slf4j;
-import main.bitget.BitgetFuturesApiClient;
-import main.bitget.PaperTradingClient;
-import main.job.CoinAdder;
-import main.job.DailyOptimizer;
-import main.job.TelegramCommandHandler;
-import main.job.TelegramNotifier;
-import main.job.WindowsPowerManager;
 import main.account.LiveAccountBalanceProvider;
-import main.model.*;
+import main.api.bitget.BitgetFuturesApiClient;
+import main.api.bitget.PaperTradingClient;
+import main.core.trading.AutoTrader;
+import main.core.trading.TradeRecorder;
+import main.core.trading.TradingBotOrchestrator;
+import main.job.*;
+import main.model.config.TradingConfig;
+import main.model.config.TradingMode;
 
 import java.net.URI;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -20,6 +19,7 @@ import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 public class BitgetTradingBot {
@@ -58,8 +58,14 @@ public class BitgetTradingBot {
             TelegramCommandHandler cmdHandler = new TelegramCommandHandler(
                     botRunning, gracefulShutdown, directionFilterEnabled,
                     config, balanceProvider, orchestrator.getTraders(),
-                    () -> { botRunning.set(false); orchestrator.getTraders().forEach(AutoTrader::stopBot); },
-                    () -> { botRunning.set(true); orchestrator.getTraders().forEach(AutoTrader::startBot); }
+                    () -> {
+                        botRunning.set(false);
+                        orchestrator.getTraders().forEach(AutoTrader::stopBot);
+                    },
+                    () -> {
+                        botRunning.set(true);
+                        orchestrator.getTraders().forEach(AutoTrader::startBot);
+                    }
             );
             telegram.setCommandHandler(cmdHandler);
             telegram.sendStartupMessage();
@@ -91,9 +97,7 @@ public class BitgetTradingBot {
                 }
             }
 
-            for (AutoTrader trader : orchestrator.getTraders()) {
-                trader.start();
-            }
+            orchestrator.getTraders().forEach(AutoTrader::start);
 
             if (config.getMode() == TradingMode.LIVE) {
                 orchestrator.startPositionReconciliation();
@@ -119,7 +123,9 @@ public class BitgetTradingBot {
                 orchestrator.getTraders().forEach(AutoTrader::stop);
                 if (dailyOptimizer != null) dailyOptimizer.shutdown();
                 if (coinAdder != null) coinAdder.shutdown();
+
                 WindowsPowerManager.allowSleep();
+
                 if (telegram != null) {
                     telegram.shutdown();
                 }

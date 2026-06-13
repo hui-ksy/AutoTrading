@@ -157,6 +157,8 @@ main/
 │   ├── core/         # TradingStrategy 인터페이스, StrategyFactory
 │   └── impl/         # 전략 구현체들
 └── util/             # PriceFormatter, ConfigFileUpdater
+
+
 ```
 
 #### [ ] 11. 미사용 전략 클래스 정리

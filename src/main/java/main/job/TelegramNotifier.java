@@ -5,11 +5,11 @@ import com.pengrad.telegrambot.UpdatesListener;
 import com.pengrad.telegrambot.model.Update;
 import com.pengrad.telegrambot.request.SendMessage;
 import lombok.extern.slf4j.Slf4j;
-import main.model.CumulativeStats;
-import main.model.Position;
-import main.model.Signal;
-import main.model.Trade;
-import main.model.TradingConfig;
+import main.model.domain.CumulativeStats;
+import main.model.domain.Position;
+import main.model.domain.Signal;
+import main.model.domain.Trade;
+import main.model.config.TradingConfig;
 
 import java.text.DecimalFormat;
 import java.time.LocalDateTime;

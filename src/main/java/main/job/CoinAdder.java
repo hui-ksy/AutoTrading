@@ -1,10 +1,10 @@
 package main.job;
 
 import lombok.extern.slf4j.Slf4j;
-import main.backtest.BacktestRunner;
-import main.model.OptimizationProposal;
-import main.model.SymbolConfig;
-import main.model.TradingConfig;
+import main.backtest.engine.BacktestRunner;
+import main.model.domain.OptimizationProposal;
+import main.model.config.SymbolConfig;
+import main.model.config.TradingConfig;
 
 import java.io.IOException;
 import java.util.Comparator;

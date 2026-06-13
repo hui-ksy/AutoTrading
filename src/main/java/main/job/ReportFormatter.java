@@ -1,6 +1,6 @@
 package main.job;
 
-import main.model.OptimizationProposal;
+import main.model.domain.OptimizationProposal;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;

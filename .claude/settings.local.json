@@ -12,7 +12,9 @@
       "Bash(/tmp/stats_analysis.sh)",
       "Bash(./gradlew compileJava *)",
       "Bash(./gradlew tasks *)",
-      "Bash(./gradlew package *)"
+      "Bash(./gradlew package *)",
+      "Bash(sed -i 's/import main\\\\.model\\\\.\\\\*;/import main.model.config.TradingConfig;\\\\nimport main.model.config.TradingMode;/' src/main/java/main/BitgetTradingBot.java)",
+      "Bash(sed -i 's/import main\\\\.model\\\\.\\\\*;/import main.model.domain.Candle;\\\\nimport main.model.domain.Position;\\\\nimport main.model.domain.Signal;\\\\nimport main.model.config.TradingConfig;\\\\nimport main.model.config.TradingMode;\\\\nimport main.model.config.SymbolConfig;/' src/main/java/main/core/trading/AutoTrader.java)"
     ]
   },
   "enabledMcpjsonServers": [
